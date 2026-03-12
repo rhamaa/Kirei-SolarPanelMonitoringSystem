@@ -1,24 +1,28 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <WiFiManager.h>
+#include <esp_system.h>
 
 // WiFi credentials
-const char* ssid = "Kirei";
-const char* password = "berakitkehulu";
+const char* ap_name = "SolarPanel-Setup";
 
 // ThingsBoard Cloud MQTT broker
 const char* mqtt_server = "mqtt.thingsboard.cloud";
 const int mqtt_port = 1883; // gunakan 8883 jika TLS
-const char* token = "eeE1oiwsBRyV9MpzY4fE"; // ambil dari ThingsBoard Cloud
+const char* token = "Qtuw3WmUMDKXJyjbEuc8"; // ambil dari ThingsBoard Cloud
 const char* client_id = "l341yk9s5cqaz75u6sp1";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 void setup_wifi() {
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  WiFi.mode(WIFI_STA);
+  WiFiManager wm;
+  wm.setConfigPortalTimeout(180);
+  bool ok = wm.autoConnect(ap_name);
+  if (!ok) {
+    delay(3000);
+    ESP.restart();
   }
   Serial.println("WiFi connected");
 }
@@ -39,6 +43,7 @@ void reconnect() {
 
 void setup() {
   Serial.begin(115200);
+  randomSeed(esp_random());
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
 }
@@ -50,11 +55,11 @@ void loop() {
   client.loop();
 
   // Simulasi data panel surya
-  float solarPower = 120.5;   // Watt
-  float voltage = 18.2;       // Volt
-  float amper = 6.6;          // Ampere
-  int batteryStatus = 75;     // %
-  float outputPower = 95.3;   // Watt
+  float solarPower = random(0, 2001) / 10.0;
+  float voltage = random(120, 251) / 10.0;
+  float amper = random(0, 121) / 10.0;
+  int batteryStatus = random(0, 101);
+  float outputPower = random(0, 2001) / 10.0;
 
   // Buat payload JSON
   String payload = "{";

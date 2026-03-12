@@ -1,0 +1,36 @@
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Arduino IDE
+*.tmp
+*.bak
+*.old
+*.zip
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Arduino/ESP32 build artifacts
+**/build/
+**/Debug/
+**/Release/
+
+# Logs
+*.log
+
+# Secrets (do not commit)
+ThingsBoard.txt
+.env
+.env.*
+secrets*
