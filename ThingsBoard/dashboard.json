@@ -1,0 +1,292 @@
+{
+  "title": "Solar Charger Dashboard",
+  "configuration": {
+    "description": "MPPT Solar Charger Monitoring Dashboard",
+    "gridSettings": {
+      "columns": 24,
+      "rowHeight": 50
+    },
+    "timewindow": {
+      "realtime": {
+        "timewindowMs": 600000
+      }
+    },
+    "widgets": {
+      "0": {
+        "isSystemType": false,
+        "bundleAlias": "charts",
+        "typeAlias": "latest-chart",
+        "type": "latest",
+        "title": "Battery Voltage",
+        "gridPos": {
+          "x": 0,
+          "y": 0,
+          "width": 6,
+          "height": 4
+        },
+        "config": {
+          "datasources": [
+            {
+              "type": "device",
+              "dataKeys": [
+                {
+                  "name": "battery_voltage",
+                  "label": "Battery Voltage (V)",
+                  "color": "#0084d4",
+                  "type": "timeseries"
+                }
+              ]
+            }
+          ],
+          "showLegend": false,
+          "decimals": 2
+        }
+      },
+      "1": {
+        "isSystemType": false,
+        "bundleAlias": "charts",
+        "typeAlias": "latest-chart",
+        "type": "latest",
+        "title": "PV Voltage",
+        "gridPos": {
+          "x": 6,
+          "y": 0,
+          "width": 6,
+          "height": 4
+        },
+        "config": {
+          "datasources": [
+            {
+              "type": "device",
+              "dataKeys": [
+                {
+                  "name": "pv_voltage",
+                  "label": "PV Voltage (V)",
+                  "color": "#f4b400",
+                  "type": "timeseries"
+                }
+              ]
+            }
+          ],
+          "showLegend": false,
+          "decimals": 2
+        }
+      },
+      "2": {
+        "isSystemType": false,
+        "bundleAlias": "cards",
+        "typeAlias": "latest-chart",
+        "type": "latest",
+        "title": "Charging Status",
+        "gridPos": {
+          "x": 12,
+          "y": 0,
+          "width": 6,
+          "height": 4
+        },
+        "config": {
+          "datasources": [
+            {
+              "type": "device",
+              "dataKeys": [
+                {
+                  "name": "charging_status_text",
+                  "label": "Status",
+                  "color": "#34a853",
+                  "type": "timeseries"
+                }
+              ]
+            }
+          ],
+          "showLegend": false
+        }
+      },
+      "3": {
+        "isSystemType": false,
+        "bundleAlias": "cards",
+        "typeAlias": "latest-chart",
+        "type": "latest",
+        "title": "Fault Code",
+        "gridPos": {
+          "x": 18,
+          "y": 0,
+          "width": 6,
+          "height": 4
+        },
+        "config": {
+          "datasources": [
+            {
+              "type": "device",
+              "dataKeys": [
+                {
+                  "name": "fault_code",
+                  "label": "Fault Code",
+                  "color": "#ff6d00",
+                  "type": "timeseries"
+                }
+              ]
+            }
+          ],
+          "showLegend": false,
+          "decimals": 0
+        }
+      },
+      "4": {
+        "isSystemType": false,
+        "bundleAlias": "charts",
+        "typeAlias": "timeseries",
+        "type": "timeseries",
+        "title": "Charging Power",
+        "gridPos": {
+          "x": 0,
+          "y": 4,
+          "width": 12,
+          "height": 4
+        },
+        "config": {
+          "datasources": [
+            {
+              "type": "device",
+              "dataKeys": [
+                {
+                  "name": "charging_power",
+                  "label": "Charging Power (W)",
+                  "color": "#ea4335",
+                  "type": "timeseries"
+                }
+              ]
+            }
+          ],
+          "showLegend": true,
+          "showTooltip": true
+        }
+      },
+      "5": {
+        "isSystemType": false,
+        "bundleAlias": "charts",
+        "typeAlias": "timeseries",
+        "type": "timeseries",
+        "title": "Power Balance",
+        "gridPos": {
+          "x": 12,
+          "y": 4,
+          "width": 12,
+          "height": 4
+        },
+        "config": {
+          "datasources": [
+            {
+              "type": "device",
+              "dataKeys": [
+                {
+                  "name": "charging_power",
+                  "label": "Charging Power (W)",
+                  "color": "#34a853",
+                  "type": "timeseries"
+                },
+                {
+                  "name": "load_power",
+                  "label": "Load Power (W)",
+                  "color": "#ea4335",
+                  "type": "timeseries"
+                }
+              ]
+            }
+          ],
+          "showLegend": true,
+          "showTooltip": true
+        }
+      },
+      "6": {
+        "isSystemType": false,
+        "bundleAlias": "cards",
+        "typeAlias": "latest-chart",
+        "type": "latest",
+        "title": "Charging Current",
+        "gridPos": {
+          "x": 0,
+          "y": 8,
+          "width": 6,
+          "height": 4
+        },
+        "config": {
+          "datasources": [
+            {
+              "type": "device",
+              "dataKeys": [
+                {
+                  "name": "charging_current",
+                  "label": "Charging Current (A)",
+                  "color": "#ea4335",
+                  "type": "timeseries"
+                }
+              ]
+            }
+          ],
+          "showLegend": false,
+          "decimals": 2
+        }
+      },
+      "7": {
+        "isSystemType": false,
+        "bundleAlias": "cards",
+        "typeAlias": "latest-chart",
+        "type": "latest",
+        "title": "Load Current",
+        "gridPos": {
+          "x": 6,
+          "y": 8,
+          "width": 6,
+          "height": 4
+        },
+        "config": {
+          "datasources": [
+            {
+              "type": "device",
+              "dataKeys": [
+                {
+                  "name": "load_current",
+                  "label": "Load Current (A)",
+                  "color": "#9c27b0",
+                  "type": "timeseries"
+                }
+              ]
+            }
+          ],
+          "showLegend": false,
+          "decimals": 2
+        }
+      },
+      "8": {
+        "isSystemType": false,
+        "bundleAlias": "cards",
+        "typeAlias": "latest-chart",
+        "type": "latest",
+        "title": "Load Power",
+        "gridPos": {
+          "x": 12,
+          "y": 8,
+          "width": 6,
+          "height": 4
+        },
+        "config": {
+          "datasources": [
+            {
+              "type": "device",
+              "dataKeys": [
+                {
+                  "name": "load_power",
+                  "label": "Load Power (W)",
+                  "color": "#9c27b0",
+                  "type": "timeseries"
+                }
+              ]
+            }
+          ],
+          "showLegend": false,
+          "decimals": 1
+        }
+      }
+    }
+  }
+}
