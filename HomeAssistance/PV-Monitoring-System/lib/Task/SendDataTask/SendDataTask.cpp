@@ -18,6 +18,8 @@ Status gStatus = Status::Idle;
 bool gStarted = false;
 bool gLastMqttConnected = false;
 bool gInfoPublished = false;
+bool gDiscoveryPublished = false;
+bool gAvailabilityPublished = false;
 unsigned long gLastPublishMs = 0;
 
 const char* taskStatusToString(Status status) {
@@ -58,10 +60,88 @@ void printBanner() {
   Serial.println("=====================================");
   Serial.printf("[SEND] Broker    : %s:%u\n", mqttConfig.server, mqttConfig.port);
   Serial.printf("[SEND] Client ID : %s\n", mqttConfig.clientId);
-  Serial.printf("[SEND] DataTopic : %s\n", mqttConfig.dataTopic);
-  Serial.printf("[SEND] InfoTopic : %s\n", mqttConfig.infoTopic);
+  Serial.printf("[SEND] Device ID : %s\n", gConfig.deviceId);
+  Serial.printf("[SEND] StateTopic: %s\n", mqttConfig.dataTopic);
+  Serial.printf("[SEND] AvailTopic: %s\n", mqttConfig.availabilityTopic);
   Serial.printf("[SEND] Interval  : %lu ms\n", static_cast<unsigned long>(gConfig.publishIntervalMs));
   Serial.println();
+}
+
+struct SensorDef {
+  const char* sensorId;
+  const char* name;
+  const char* jsonKey;
+  const char* unit;
+  const char* deviceClass;
+  const char* stateClass;
+  const char* icon;
+};
+
+static const SensorDef kSensors[] = {
+  {"pv_power",           "PV Power",           "pv_power",        "W",   "power",   "measurement",      "mdi:solar-power"},
+  {"pv_voltage",         "PV Voltage",         "pv_voltage",      "V",   "voltage", "measurement",      "mdi:flash"},
+  {"pv_current",         "PV Current",         "pv_current",      "A",   "current", "measurement",      "mdi:current-dc"},
+  {"energy_today",       "Energy Today",       "energy_today",    "kWh", "energy",  "total_increasing", "mdi:solar-power"},
+  {"battery_soc",        "Battery SOC",        "batt_soc",        "%",   "battery", "measurement",      "mdi:battery"},
+  {"battery_voltage",    "Battery Voltage",    "batt_voltage",    "V",   "voltage", "measurement",      "mdi:battery-charging"},
+  {"battery_energy_in",  "Battery Energy In",  "batt_energy_in",  "kWh", "energy",  "total_increasing", "mdi:battery-arrow-up"},
+  {"battery_energy_out", "Battery Energy Out", "batt_energy_out", "kWh", "energy",  "total_increasing", "mdi:battery-arrow-down"},
+  {"load1_power",        "Load 1 Power",       "load1_power",     "W",   "power",   "measurement",      "mdi:power-plug"},
+  {"load1_energy",       "Load 1 Energy",      "load1_energy",    "kWh", "energy",  "total_increasing", "mdi:lightning-bolt"},
+};
+static constexpr size_t kSensorCount = sizeof(kSensors) / sizeof(kSensors[0]);
+
+bool publishHaDiscovery() {
+  const char* deviceId = gConfig.deviceId;
+  const MQTTModule::Config mqttCfg = gMqttManager.getConfig();
+
+  bool allOk = true;
+  for (size_t i = 0; i < kSensorCount; ++i) {
+    const SensorDef& s = kSensors[i];
+
+    char topic[128] = {};
+    std::snprintf(topic, sizeof(topic),
+                  "homeassistant/sensor/%s/%s/config",
+                  deviceId, s.sensorId);
+
+    char payload[640] = {};
+    const int written = std::snprintf(
+        payload, sizeof(payload),
+        "{\"name\":\"%s\","
+        "\"unique_id\":\"%s_%s\","
+        "\"state_topic\":\"%s\","
+        "\"availability_topic\":\"%s\","
+        "\"value_template\":\"{{value_json.%s}}\","
+        "\"unit_of_measurement\":\"%s\","
+        "\"device_class\":\"%s\","
+        "\"state_class\":\"%s\","
+        "\"icon\":\"%s\","
+        "\"device\":{\"identifiers\":[\"%s\"],"
+        "\"name\":\"%s\","
+        "\"model\":\"MPPT Solar Monitor\","
+        "\"manufacturer\":\"DIY\","
+        "\"sw_version\":\"%s\"}}",
+        s.name,
+        deviceId, s.sensorId,
+        mqttCfg.dataTopic,
+        mqttCfg.availabilityTopic,
+        s.jsonKey,
+        s.unit,
+        s.deviceClass,
+        s.stateClass,
+        s.icon,
+        deviceId,
+        gConfig.deviceName,
+        gConfig.swVersion);
+
+    if (written > 0 && written < static_cast<int>(sizeof(payload))) {
+      const bool ok = gMqttManager.publishJson(topic, payload, true);
+      allOk = allOk && ok;
+    } else {
+      allOk = false;
+    }
+  }
+  return allOk;
 }
 
 void printInfoPublishResult(bool published) {
@@ -100,61 +180,37 @@ bool publishInfo() {
   return gMqttManager.publishInfoJson(payload);
 }
 
-bool publishDataSnapshot(const PVSense::MpptData& data) {
-  InverterSense::InverterSnapshot inverterData{};
-  const bool hasInverterData = DataTask::getLatestInverterData(inverterData);
-
-  char payload[1024] = {};
+bool publishHaState(const PVSense::MpptData& data) {
+  char payload[384] = {};
   const int written = std::snprintf(
       payload,
       sizeof(payload),
-      "{\"mppt_valid\":true,"
-      "\"mppt_pv_voltage\":%.1f,"
-      "\"mppt_charging_power\":%.1f,"
-      "\"mppt_charging_current\":%.2f,"
-      "\"mppt_battery_voltage\":%.1f,"
-      "\"mppt_charging_status\":%u,"
-      "\"mppt_charging_status_text\":\"%s\","
-      "\"mppt_load_current\":%.2f,"
-      "\"mppt_load_power\":%.1f,"
-      "\"mppt_fault_code\":%u,"
-      "\"mppt_timestamp_ms\":%lu,"
-      "\"inverter_valid\":%s,"
-      "\"inverter_ac_voltage\":%.1f,"
-      "\"inverter_ac_current\":%.3f,"
-      "\"inverter_ac_power\":%.1f,"
-      "\"inverter_ac_energy\":%.3f,"
-      "\"inverter_ac_frequency\":%.1f,"
-      "\"inverter_ac_power_factor\":%.2f,"
-      "\"inverter_ac_apparent_power\":%.1f,"
-      "\"inverter_timestamp_ms\":%lu,"
-      "\"wifi_rssi\":%ld}",
+      "{\"pv_voltage\":%.2f,"
+      "\"pv_current\":%.3f,"
+      "\"pv_power\":%.1f,"
+      "\"energy_today\":%.4f,"
+      "\"batt_soc\":%.1f,"
+      "\"batt_voltage\":%.2f,"
+      "\"batt_energy_in\":%.4f,"
+      "\"batt_energy_out\":%.4f,"
+      "\"load1_power\":%.1f,"
+      "\"load1_energy\":%.4f}",
       static_cast<double>(data.pvVoltage),
-      static_cast<double>(data.chargingPower),
       static_cast<double>(data.chargingCurrent),
+      static_cast<double>(data.chargingPower),
+      0.0,
+      0.0,
       static_cast<double>(data.batteryVoltage),
-      static_cast<unsigned>(data.chargingStatus),
-      PVSense::PVData::chargingStatusToString(data.chargingStatus),
-      static_cast<double>(data.loadCurrent),
+      0.0,
+      0.0,
       static_cast<double>(data.loadPower),
-      static_cast<unsigned>(data.faultCode),
-      static_cast<unsigned long>(data.timestampMs),
-      hasInverterData ? "true" : "false",
-      static_cast<double>(hasInverterData ? inverterData.voltage : 0.0f),
-      static_cast<double>(hasInverterData ? inverterData.current : 0.0f),
-      static_cast<double>(hasInverterData ? inverterData.power : 0.0f),
-      static_cast<double>(hasInverterData ? inverterData.energy : 0.0f),
-      static_cast<double>(hasInverterData ? inverterData.frequency : 0.0f),
-      static_cast<double>(hasInverterData ? inverterData.powerFactor : 0.0f),
-      static_cast<double>(hasInverterData ? inverterData.apparentPower : 0.0f),
-      static_cast<unsigned long>(hasInverterData ? inverterData.timestampMs : 0UL),
-      static_cast<long>(WiFi.RSSI()));
+      0.0);
 
   if (written <= 0 || written >= static_cast<int>(sizeof(payload))) {
     return false;
   }
 
-  return gMqttManager.publishDataJson(payload);
+  return gMqttManager.publishDataJson(payload, true);
 }
 
 void printDataPublishResult(const PVSense::MpptData& data, bool published) {
@@ -163,28 +219,15 @@ void printDataPublishResult(const PVSense::MpptData& data, bool published) {
   }
 
   if (published) {
-    InverterSense::InverterSnapshot inverterData{};
-    const bool hasInverterData = DataTask::getLatestInverterData(inverterData);
-
-    if (hasInverterData) {
-      Serial.printf(
-          "[SEND] Data -> MQTT: OK | MPPT[pv=%.1fV batt=%.1fV load=%.1fW] | "
-          "INV[ac=%.1fW]\n",
-          data.pvVoltage,
-          data.batteryVoltage,
-          data.loadPower,
-          inverterData.power);
-    } else {
-      Serial.printf("[SEND] Data -> MQTT: OK | MPPT[pv=%.1fV batt=%.1fV load=%.1fW] | "
-                    "INV[no data]\n",
-                    data.pvVoltage,
-                    data.batteryVoltage,
-                    data.loadPower);
-    }
+    Serial.printf("[SEND] State -> HA : OK | pv=%.1fW %.2fV | batt=%.2fV | load=%.1fW\n",
+                  data.chargingPower,
+                  data.pvVoltage,
+                  data.batteryVoltage,
+                  data.loadPower);
     return;
   }
 
-  Serial.printf("[SEND] Data -> MQTT: FAIL | mqtt=%s | state=%s | wifi=%s\n",
+  Serial.printf("[SEND] State -> HA : FAIL | mqtt=%s | state=%s | wifi=%s\n",
                 MQTTModule::MQTTConfigManager::statusToString(gMqttManager.getStatus()),
                 MQTTModule::MQTTConfigManager::clientStateToString(gMqttManager.getClientState()),
                 WifiTask::isConnected() ? "Connected" : "Disconnected");
@@ -219,11 +262,28 @@ void sendTaskLoop(void* parameter) {
     if (!WifiTask::isConnected()) {
       gMqttManager.disconnect();
       gInfoPublished = false;
+      gDiscoveryPublished = false;
+      gAvailabilityPublished = false;
       setStatus(Status::WaitingWifi);
     } else if (!gMqttManager.ensureConnected()) {
+      gAvailabilityPublished = false;
       setStatus(Status::ConnectingBroker);
     } else {
       gMqttManager.loop();
+
+      if (!gDiscoveryPublished) {
+        gDiscoveryPublished = publishHaDiscovery();
+        if (gConfig.printEventsToSerial) {
+          Serial.printf("[SEND] HA Discovery: %s\n", gDiscoveryPublished ? "OK" : "FAIL");
+        }
+      }
+
+      if (!gAvailabilityPublished) {
+        gAvailabilityPublished = gMqttManager.publishAvailability(true, true);
+        if (gConfig.printEventsToSerial) {
+          Serial.printf("[SEND] HA Avail    : %s\n", gAvailabilityPublished ? "online" : "FAIL");
+        }
+      }
 
       if (!gInfoPublished && gConfig.publishInfoOnConnect) {
         gInfoPublished = publishInfo();
@@ -238,7 +298,7 @@ void sendTaskLoop(void* parameter) {
 
         const unsigned long now = millis();
         if ((gLastPublishMs == 0U) || ((now - gLastPublishMs) >= gConfig.publishIntervalMs)) {
-          const bool published = publishDataSnapshot(pvData);
+          const bool published = publishHaState(pvData);
           printDataPublishResult(pvData, published);
           setStatus(published ? Status::PublishSuccess : Status::PublishFailed);
 

@@ -33,6 +33,7 @@ struct Config {
   const char* password = kDefaultPassword;
   const char* dataTopic = kDefaultDataTopic;
   const char* infoTopic = kDefaultInfoTopic;
+  const char* availabilityTopic = kDefaultAvailabilityTopic;
   uint16_t keepAliveSeconds = 60;
   uint16_t socketTimeoutSeconds = 15;
   uint16_t bufferSize = 1024;
@@ -56,6 +57,7 @@ class MQTTConfigManager {
   bool publishJson(const char* topic, const char* jsonPayload, bool retained = false);
   bool publishDataJson(const char* jsonPayload, bool retained = false);
   bool publishInfoJson(const char* jsonPayload, bool retained = false);
+  bool publishAvailability(bool online, bool retained = true);
 
   bool publishData(const char* key, float value, uint8_t decimals = 2);
   bool publishData(const char* key, int32_t value);
