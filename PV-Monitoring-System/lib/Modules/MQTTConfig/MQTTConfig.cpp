@@ -31,13 +31,19 @@ void maskValue(const char* value, char* buffer, size_t bufferSize) {
 
 }  // namespace
 
-MQTTConfigManager::MQTTConfigManager() : mqttClient_(wifiClient_) {}
+MQTTConfigManager* MQTTConfigManager::instance_ = nullptr;
+
+MQTTConfigManager::MQTTConfigManager() : mqttClient_(wifiClient_) {
+  instance_ = this;
+}
 
 bool MQTTConfigManager::begin(const Config& config) {
   config_ = config;
+  buildTopics();
   configureClient();
   status_ = mqttClient_.connected() ? Status::Connected : Status::Disconnected;
   initialized_ = true;
+  subscribed_ = false;
   return true;
 }
 
@@ -48,8 +54,11 @@ bool MQTTConfigManager::ensureConnected() {
 
   if (mqttClient_.connected()) {
     setStatus(Status::Connected);
+    ensureSubscribed();
     return true;
   }
+
+  subscribed_ = false;
 
   if (WiFi.status() != WL_CONNECTED) {
     setStatus(Status::NoWifi);
@@ -63,11 +72,18 @@ bool MQTTConfigManager::ensureConnected() {
   setStatus(Status::Connecting);
   lastConnectAttemptMs_ = millis();
 
+  const char* clientId = effectiveClientId();
   const bool connected =
       hasValue(config_.username)
-          ? mqttClient_.connect(config_.clientId, config_.username, config_.password)
-          : mqttClient_.connect(config_.clientId);
+          ? mqttClient_.connect(clientId, config_.username, config_.password)
+          : mqttClient_.connect(clientId);
+
   setStatus(connected ? Status::Connected : Status::ConnectFailed);
+
+  if (connected) {
+    ensureSubscribed();
+  }
+
   return connected;
 }
 
@@ -80,6 +96,7 @@ void MQTTConfigManager::loop() {
 void MQTTConfigManager::disconnect() {
   mqttClient_.disconnect();
   setStatus(Status::Disconnected);
+  subscribed_ = false;
 }
 
 bool MQTTConfigManager::isConnected() {
@@ -96,6 +113,22 @@ int8_t MQTTConfigManager::getClientState() {
 
 Config MQTTConfigManager::getConfig() const {
   return config_;
+}
+
+const char* MQTTConfigManager::getPubsTopic() const {
+  return pubsTopic_;
+}
+
+const char* MQTTConfigManager::getSubsTopic() const {
+  return subsTopic_;
+}
+
+const char* MQTTConfigManager::getStatusTopic() const {
+  return statusTopic_;
+}
+
+const char* MQTTConfigManager::getDeviceId() const {
+  return hasValue(config_.deviceId) ? config_.deviceId : kDefaultDeviceId;
 }
 
 bool MQTTConfigManager::publishJson(const char* topic, const char* jsonPayload, bool retained) {
@@ -115,64 +148,17 @@ bool MQTTConfigManager::publishJson(const char* topic, const char* jsonPayload, 
   return published;
 }
 
-bool MQTTConfigManager::publishDataJson(const char* jsonPayload, bool retained) {
-  return publishJson(config_.dataTopic, jsonPayload, retained);
+bool MQTTConfigManager::publishPubs(const char* jsonPayload, bool retained) {
+  return publishJson(pubsTopic_, jsonPayload, retained);
 }
 
-bool MQTTConfigManager::publishInfoJson(const char* jsonPayload, bool retained) {
-  return publishJson(config_.infoTopic, jsonPayload, retained);
+bool MQTTConfigManager::publishStatus(const char* jsonPayload, bool retained) {
+  return publishJson(statusTopic_, jsonPayload, retained);
 }
 
-bool MQTTConfigManager::publishData(const char* key, float value, uint8_t decimals) {
-  char numberBuffer[32] = {};
-  std::snprintf(numberBuffer, sizeof(numberBuffer), "%.*f", decimals, value);
-  return publishKeyValue(config_.dataTopic, key, numberBuffer, false);
-}
-
-bool MQTTConfigManager::publishData(const char* key, int32_t value) {
-  char numberBuffer[32] = {};
-  std::snprintf(numberBuffer, sizeof(numberBuffer), "%ld", static_cast<long>(value));
-  return publishKeyValue(config_.dataTopic, key, numberBuffer, false);
-}
-
-bool MQTTConfigManager::publishData(const char* key, uint32_t value) {
-  char numberBuffer[32] = {};
-  std::snprintf(numberBuffer, sizeof(numberBuffer), "%lu", static_cast<unsigned long>(value));
-  return publishKeyValue(config_.dataTopic, key, numberBuffer, false);
-}
-
-bool MQTTConfigManager::publishData(const char* key, bool value) {
-  return publishKeyValue(config_.dataTopic, key, value ? "true" : "false", false);
-}
-
-bool MQTTConfigManager::publishData(const char* key, const char* value) {
-  return publishKeyValue(config_.dataTopic, key, value, true);
-}
-
-bool MQTTConfigManager::publishInfo(const char* key, float value, uint8_t decimals) {
-  char numberBuffer[32] = {};
-  std::snprintf(numberBuffer, sizeof(numberBuffer), "%.*f", decimals, value);
-  return publishKeyValue(config_.infoTopic, key, numberBuffer, false);
-}
-
-bool MQTTConfigManager::publishInfo(const char* key, int32_t value) {
-  char numberBuffer[32] = {};
-  std::snprintf(numberBuffer, sizeof(numberBuffer), "%ld", static_cast<long>(value));
-  return publishKeyValue(config_.infoTopic, key, numberBuffer, false);
-}
-
-bool MQTTConfigManager::publishInfo(const char* key, uint32_t value) {
-  char numberBuffer[32] = {};
-  std::snprintf(numberBuffer, sizeof(numberBuffer), "%lu", static_cast<unsigned long>(value));
-  return publishKeyValue(config_.infoTopic, key, numberBuffer, false);
-}
-
-bool MQTTConfigManager::publishInfo(const char* key, bool value) {
-  return publishKeyValue(config_.infoTopic, key, value ? "true" : "false", false);
-}
-
-bool MQTTConfigManager::publishInfo(const char* key, const char* value) {
-  return publishKeyValue(config_.infoTopic, key, value, true);
+void MQTTConfigManager::setMessageCallback(MessageCallback callback) {
+  messageCallback_ = std::move(callback);
+  mqttClient_.setCallback(&MQTTConfigManager::internalCallback);
 }
 
 PubSubClient& MQTTConfigManager::client() {
@@ -185,11 +171,13 @@ void MQTTConfigManager::printStatus(Print& out) {
 
   out.printf("[MQTT] Status      : %s\n", statusToString(status_));
   out.printf("[MQTT] Broker      : %s:%u\n", config_.server, config_.port);
-  out.printf("[MQTT] Client ID   : %s\n", config_.clientId);
+  out.printf("[MQTT] Device ID   : %s\n", getDeviceId());
+  out.printf("[MQTT] Client ID   : %s\n", effectiveClientId());
   out.printf("[MQTT] Username    : %s\n", hasValue(config_.username) ? config_.username : "-");
   out.printf("[MQTT] Password    : %s\n", hasValue(config_.password) ? maskedPassword : "-");
-  out.printf("[MQTT] Data Topic  : %s\n", hasValue(config_.dataTopic) ? config_.dataTopic : "-");
-  out.printf("[MQTT] Info Topic  : %s\n", hasValue(config_.infoTopic) ? config_.infoTopic : "-");
+  out.printf("[MQTT] Pubs Topic  : %s\n", pubsTopic_);
+  out.printf("[MQTT] Subs Topic  : %s\n", subsTopic_);
+  out.printf("[MQTT] Status Topic: %s\n", statusTopic_);
   out.printf("[MQTT] WiFi        : %s\n", (WiFi.status() == WL_CONNECTED) ? "Connected" : "Not Connected");
   out.printf("[MQTT] ClientState : %d (%s)\n",
              static_cast<int>(mqttClient_.state()),
@@ -251,30 +239,26 @@ void MQTTConfigManager::configureClient() {
   mqttClient_.setBufferSize(config_.bufferSize);
 }
 
+void MQTTConfigManager::buildTopics() {
+  const char* prefix = hasValue(config_.topicPrefix) ? config_.topicPrefix : kDefaultTopicPrefix;
+  const char* deviceId = getDeviceId();
+
+  std::snprintf(pubsTopic_, sizeof(pubsTopic_), "%s/%s/%s", prefix, deviceId, kPubsSuffix);
+  std::snprintf(subsTopic_, sizeof(subsTopic_), "%s/%s/%s", prefix, deviceId, kSubsSuffix);
+  std::snprintf(statusTopic_, sizeof(statusTopic_), "%s/%s/%s", prefix, deviceId, kStatusSuffix);
+}
+
 void MQTTConfigManager::setStatus(Status status) {
   status_ = status;
 }
 
-bool MQTTConfigManager::publishKeyValue(const char* topic,
-                                        const char* key,
-                                        const char* value,
-                                        bool quoteValue) {
-  if (!hasValue(topic) || !hasValue(key) || value == nullptr) {
-    return false;
+bool MQTTConfigManager::ensureSubscribed() {
+  if (subscribed_ || !hasValue(subsTopic_) || !mqttClient_.connected()) {
+    return subscribed_;
   }
 
-  char payloadBuffer[kPayloadBufferSize] = {};
-  const int written = std::snprintf(payloadBuffer,
-                                    sizeof(payloadBuffer),
-                                    quoteValue ? "{\"%s\":\"%s\"}" : "{\"%s\":%s}",
-                                    key,
-                                    value);
-
-  if (written <= 0 || written >= static_cast<int>(sizeof(payloadBuffer))) {
-    return false;
-  }
-
-  return publishJson(topic, payloadBuffer, false);
+  subscribed_ = mqttClient_.subscribe(subsTopic_, config_.subscribeQos);
+  return subscribed_;
 }
 
 bool MQTTConfigManager::canAttemptReconnect() const {
@@ -283,6 +267,20 @@ bool MQTTConfigManager::canAttemptReconnect() const {
   }
 
   return (millis() - lastConnectAttemptMs_) >= config_.reconnectIntervalMs;
+}
+
+const char* MQTTConfigManager::effectiveClientId() const {
+  if (hasValue(config_.clientId)) {
+    return config_.clientId;
+  }
+  return getDeviceId();
+}
+
+void MQTTConfigManager::internalCallback(char* topic, uint8_t* payload, unsigned int length) {
+  if (instance_ == nullptr || !instance_->messageCallback_) {
+    return;
+  }
+  instance_->messageCallback_(topic, payload, length);
 }
 
 }  // namespace MQTTModule

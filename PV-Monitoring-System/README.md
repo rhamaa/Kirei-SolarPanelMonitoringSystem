@@ -1,6 +1,6 @@
 # PV Monitoring System
 
-Firmware ESP32 untuk membaca data MPPT dan inverter, lalu mengirimkannya ke broker MQTT menggunakan `PubSubClient`.
+Firmware ESP32 untuk membaca data MPPT dan inverter, lalu mengirimkannya ke broker MQTT menggunakan `PubSubClient` dan ke **InfluxDB v2** lewat HTTP.
 
 ## Ringkasan
 
@@ -8,7 +8,7 @@ Sistem ini menjalankan tiga task utama:
 
 1. `WifiTask` untuk koneksi WiFi
 2. `DataTask` untuk membaca sensor MPPT dan inverter
-3. `SendDataTask` untuk publish data ke MQTT
+3. `SendDataTask` untuk publish data ke MQTT **dan** menulis ke InfluxDB
 
 Board target saat ini ada di `platformio.ini`:
 
@@ -20,38 +20,43 @@ Board target saat ini ada di `platformio.ini`:
 - `PubSubClient`
 - `WiFiManager`
 - `PZEM-004T-v30`
+- `HTTPClient` (bawaan ESP32 Arduino core)
 
-## Konfigurasi MQTT Default
+## Konfigurasi Default
 
-Default MQTT saat ini didefinisikan di `lib/Modules/MQTTConfig/MQTTConfig.h`.
+Lihat `src/main.cpp` untuk konstanta yang perlu diisi sebelum flashing:
 
-| Parameter | Default |
+| Konstanta | Keterangan |
 | --- | --- |
-| `server` | `broker.hivemq.com` |
-| `port` | `1883` |
-| `clientId` | `pv-monitoring-client` |
-| `username` | `""` |
-| `password` | `""` |
-| `dataTopic` | `pv-monitoring/data` |
-| `infoTopic` | `pv-monitoring/info` |
-| `bufferSize` | `1024` |
-| `reconnectIntervalMs` | `5000` |
+| `kDeviceId` | ID perangkat, dipakai di seluruh topic MQTT (`pv-monitoring/<kDeviceId>/...`) |
+| `kFirmwareVersion` | Versi firmware, dikirim pada payload status |
+| `kMqttServer` / `kMqttPort` | Alamat broker MQTT |
+| `kMqttUsername` / `kMqttPassword` | Kredensial MQTT (boleh string kosong) |
+| `kInfluxUrl` | Base URL InfluxDB v2, contoh `http://192.168.68.106:8086` |
+| `kInfluxOrg` | Nama organisasi InfluxDB v2 |
+| `kInfluxBucket` | Bucket tujuan |
+| `kInfluxToken` | API token InfluxDB v2 dengan permission write ke bucket |
+| `kInfluxMeasurement` | Nama measurement (default `pv_monitoring`) |
 
 ## Daftar Topic MQTT
 
-Saat ini firmware hanya publish ke dua topic berikut:
+Firmware ini **bukan** integrasi Home Assistant. Hanya ada tiga topic yang semuanya dibentuk dari `pv-monitoring/<DeviceID>/...`.
 
-### 1. Topic data
+Contoh dengan `DeviceID = pv-monitoring-01`:
 
-- Topic: `pv-monitoring/data`
-- Arah: publish
-- Fungsi: kirim data MPPT dan inverter secara periodik
-- Interval default: `10000 ms`
+| Topic | Arah | Fungsi |
+| --- | --- | --- |
+| `pv-monitoring/pv-monitoring-01/pubs` | Device -> Broker | Publish data sensor MPPT + inverter periodik (default 10 s) |
+| `pv-monitoring/pv-monitoring-01/subs` | Broker -> Device | Device subscribe di topic ini untuk menerima command |
+| `pv-monitoring/pv-monitoring-01/status` | Device -> Broker | Publish status device (IP, RSSI, uptime, firmware) saat konek dan periodik (default 30 s) |
 
-Payload JSON yang dikirim:
+### 1. Topic pubs - payload data sensor
+
+Contoh payload JSON yang dipublish ke `pv-monitoring/<DeviceID>/pubs`:
 
 ```json
 {
+  "device_id": "pv-monitoring-01",
   "mppt_valid": true,
   "mppt_pv_voltage": 18.5,
   "mppt_charging_power": 120.0,
@@ -76,84 +81,57 @@ Payload JSON yang dikirim:
 }
 ```
 
-Keterangan field:
+### 2. Topic status - payload status device
 
-| Field | Tipe | Keterangan |
-| --- | --- | --- |
-| `mppt_valid` | `bool` | Penanda data MPPT valid saat publish |
-| `mppt_pv_voltage` | `float` | Tegangan panel surya, satuan volt |
-| `mppt_charging_power` | `float` | Daya charging MPPT, satuan watt |
-| `mppt_charging_current` | `float` | Arus charging MPPT, satuan ampere |
-| `mppt_battery_voltage` | `float` | Tegangan baterai, satuan volt |
-| `mppt_charging_status` | `uint8` | Status charging numerik dari MPPT |
-| `mppt_charging_status_text` | `string` | Status charging dalam teks |
-| `mppt_load_current` | `float` | Arus beban DC, satuan ampere |
-| `mppt_load_power` | `float` | Daya beban DC, satuan watt |
-| `mppt_fault_code` | `uint16` | Fault code dari MPPT |
-| `mppt_timestamp_ms` | `uint32` | Timestamp data MPPT berdasarkan `millis()` |
-| `inverter_valid` | `bool` | Penanda data inverter valid atau tidak |
-| `inverter_ac_voltage` | `float` | Tegangan AC inverter, satuan volt |
-| `inverter_ac_current` | `float` | Arus AC inverter, satuan ampere |
-| `inverter_ac_power` | `float` | Daya aktif inverter, satuan watt |
-| `inverter_ac_energy` | `float` | Energi inverter, satuan kWh |
-| `inverter_ac_frequency` | `float` | Frekuensi AC, satuan Hz |
-| `inverter_ac_power_factor` | `float` | Power factor inverter |
-| `inverter_ac_apparent_power` | `float` | Daya semu inverter, satuan VA |
-| `inverter_timestamp_ms` | `uint32` | Timestamp data inverter berdasarkan `millis()` |
-| `wifi_rssi` | `int32` | Kekuatan sinyal WiFi |
-
-Nilai `mppt_charging_status_text` saat ini:
-
-- `MPPT Charging`
-- `Boost / Equalizing`
-- `Floating`
-- `Not Charging`
-- `Unknown`
-
-### 2. Topic info
-
-- Topic: `pv-monitoring/info`
-- Arah: publish
-- Fungsi: kirim informasi koneksi MQTT saat perangkat berhasil terkoneksi
-- Dikirim sekali setiap selesai konek MQTT jika `publishInfoOnConnect = true`
-
-Payload JSON yang dikirim:
+Contoh payload JSON yang dipublish ke `pv-monitoring/<DeviceID>/status`:
 
 ```json
 {
-  "client_id": "pv-monitoring-client",
-  "broker": "broker.hivemq.com",
-  "port": 1883,
-  "data_topic": "pv-monitoring/data",
-  "info_topic": "pv-monitoring/info"
+  "device_id": "pv-monitoring-01",
+  "firmware_version": "1.0.0",
+  "wifi_ssid": "MyWiFi",
+  "wifi_rssi": -58,
+  "ip": "192.168.68.42",
+  "uptime_ms": 123456,
+  "status": "online"
 }
 ```
 
-Field pada topic info:
+### 3. Topic subs - command yang didukung
 
-| Field | Tipe | Keterangan |
-| --- | --- | --- |
-| `client_id` | `string` | Client ID MQTT |
-| `broker` | `string` | Alamat broker MQTT |
-| `port` | `uint16` | Port broker MQTT |
-| `data_topic` | `string` | Topic publish data sensor |
-| `info_topic` | `string` | Topic publish informasi koneksi |
+Kirim payload ke `pv-monitoring/<DeviceID>/subs`:
 
-### 3. Topic subscribe
+| Payload | Reaksi |
+| --- | --- |
+| `ping` atau `{"cmd":"ping"}` | Device langsung publish ulang payload status ke `pv-monitoring/<DeviceID>/status` |
 
-Saat ini firmware belum subscribe topic apa pun.
+Command yang tidak dikenal akan di-log ke Serial lalu diabaikan.
 
-- Tidak ada topic command
-- Tidak ada RPC
-- Tidak ada control topic dari broker ke device
+## Integrasi InfluxDB v2
 
-Kalau ingin menambah subscribe, entry point paling cocok ada di `MQTTConfigManager::client()`.
+Selain publish MQTT, pada tiap siklus `publishIntervalMs` firmware juga melakukan `POST /api/v2/write?org=<org>&bucket=<bucket>&precision=ms` ke InfluxDB v2 dengan body line protocol seperti berikut:
 
-## Cara Mengubah Topic MQTT
+```
+pv_monitoring,device_id=pv-monitoring-01,charging_status=0 mppt_pv_voltage=18.500,mppt_charging_power=120.000,mppt_charging_current=6.480,mppt_battery_voltage=13.800,mppt_load_current=1.250,mppt_load_power=17.300,mppt_fault_code=0i,inverter_valid=true,inverter_ac_voltage=220.400,inverter_ac_current=0.431,inverter_ac_power=92.500,inverter_ac_energy=1.234,inverter_ac_frequency=50.000,inverter_ac_power_factor=0.970,inverter_ac_apparent_power=95.400,wifi_rssi=-58i
+```
 
-Topic MQTT bisa diubah lewat `SendDataTask::Config` dan `MQTTModule::Config`.
+Header yang dipakai:
 
-Contoh penggunaan di `src/main.cpp`:
+- `Authorization: Token <INFLUX_TOKEN>`
+- `Content-Type: text/plain; charset=utf-8`
+
+InfluxDB v2 mengembalikan `204 No Content` jika tulis sukses. Untuk menonaktifkan InfluxDB tanpa menghapus kode, set `config.influxConfig.enabled = false` di `main.cpp`.
+
+### Menyiapkan InfluxDB v2
+
+1. Buka UI InfluxDB di `http://192.168.68.106:8086`, login.
+2. Buat bucket, misalnya `solar`.
+3. Buat API token dengan permission **Write** ke bucket tersebut.
+4. Isi `kInfluxOrg`, `kInfluxBucket`, `kInfluxToken` di `src/main.cpp`.
+
+## Cara Mengubah Konfigurasi Runtime
+
+Semua konfigurasi di-inject lewat `SendDataTask::Config`. Contoh di `src/main.cpp`:
 
 ```cpp
 #include <Arduino.h>
@@ -168,19 +146,24 @@ void setup() {
   WifiTask::begin();
   DataTask::begin();
 
-  MQTTModule::Config mqttConfig{};
-  mqttConfig.server = "192.168.1.10";
-  mqttConfig.port = 1883;
-  mqttConfig.clientId = "esp32-pv-monitor";
-  mqttConfig.username = "mqtt-user";
-  mqttConfig.password = "mqtt-pass";
-  mqttConfig.dataTopic = "solar/pv-monitor/data";
-  mqttConfig.infoTopic = "solar/pv-monitor/info";
-
   SendDataTask::Config sendConfig{};
-  sendConfig.mqttConfig = mqttConfig;
+  sendConfig.firmwareVersion = "1.0.0";
   sendConfig.publishIntervalMs = 10000;
-  sendConfig.publishInfoOnConnect = true;
+  sendConfig.statusIntervalMs = 30000;
+
+  sendConfig.mqttConfig.server = "192.168.1.10";
+  sendConfig.mqttConfig.port = 1883;
+  sendConfig.mqttConfig.deviceId = "pv-monitoring-01";
+  sendConfig.mqttConfig.topicPrefix = "pv-monitoring";
+  sendConfig.mqttConfig.username = "mqtt-user";
+  sendConfig.mqttConfig.password = "mqtt-pass";
+
+  sendConfig.influxConfig.url = "http://192.168.68.106:8086";
+  sendConfig.influxConfig.org = "YOUR_ORG";
+  sendConfig.influxConfig.bucket = "solar";
+  sendConfig.influxConfig.token = "YOUR_INFLUXDB_V2_TOKEN";
+  sendConfig.influxConfig.measurement = "pv_monitoring";
+  sendConfig.influxConfig.enabled = true;
 
   SendDataTask::begin(sendConfig);
 }
@@ -190,19 +173,17 @@ void loop() {
 }
 ```
 
-## Alur Publish MQTT
+## Alur Kerja
 
-Urutan kerjanya seperti ini:
-
-1. Device konek WiFi
-2. `SendDataTask` mencoba konek ke broker MQTT
-3. Setelah konek, firmware publish payload info ke `infoTopic`
-4. Firmware membaca data MPPT dan inverter
-5. Firmware publish payload data ke `dataTopic` secara periodik
+1. Device konek WiFi (WifiTask).
+2. `SendDataTask` konek ke broker MQTT dan subscribe ke topic `pv-monitoring/<DeviceID>/subs`.
+3. Setelah konek, firmware publish status awal ke `pv-monitoring/<DeviceID>/status`.
+4. `DataTask` terus-menerus poll MPPT (Modbus RTU) dan inverter (PZEM-004Tv3).
+5. Tiap `publishIntervalMs`, `SendDataTask` publish data JSON ke `.../pubs` dan menulis line protocol ke InfluxDB v2.
+6. Tiap `statusIntervalMs`, firmware publish status device ke `.../status`.
+7. Saat ada message di `.../subs`, firmware eksekusi command (saat ini: `ping`).
 
 ## Build
-
-Command build:
 
 ```powershell
 pio run -e 4d_systems_esp32s3_gen4_r8n16
@@ -210,7 +191,7 @@ pio run -e 4d_systems_esp32s3_gen4_r8n16
 
 ## Catatan
 
-- Payload data sudah dipisah jelas antara data MPPT dan inverter dengan prefix `mppt_` dan `inverter_`.
-- Default koneksi MQTT sekarang adalah MQTT umum, bukan ThingsBoard.
 - Buffer MQTT diset `1024` agar payload JSON data tetap muat.
+- Stack task `SendDataTask` dinaikkan menjadi 8192 karena HTTPClient + buffer line protocol.
 - Di serial monitor, kirim karakter `R` atau `r` untuk reset counter energy inverter.
+- InfluxDB v2 endpoint default (`kInfluxUrl`) adalah `http://192.168.68.106:8086` sesuai permintaan.

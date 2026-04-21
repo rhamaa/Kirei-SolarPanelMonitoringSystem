@@ -7,8 +7,8 @@
 
 namespace PVSense {
 
-static constexpr uint8_t kDefaultRs485Tx = 17;
-static constexpr uint8_t kDefaultRs485Rx = 16;
+static constexpr uint8_t kDefaultRs485Tx = 16;
+static constexpr uint8_t kDefaultRs485Rx = 17;
 static constexpr uint8_t kDefaultSlaveId = 0x06;
 static constexpr uint32_t kDefaultPollMs = 2000;
 static constexpr uint32_t kDefaultBaudRate = 9600;
