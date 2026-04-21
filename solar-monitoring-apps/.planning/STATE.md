@@ -2,14 +2,14 @@
 
 ## Project Reference
 
-**Core value**: Operator bisa melihat nilai terbaru + tren PV/inverter secara realtime dan cepat, tanpa buka tool Influx/MQTT manual.  
+**Core value**: Operator bisa melihat nilai terbaru + tren PV/inverter secara realtime dan cepat, tanpa buka tool Influx manual.  
 **Scope**: `solar-monitoring-apps/` (Next.js App Router)  
 **Constraints**: pnpm, Influx via server-side `@influxdata/influxdb-client`, realtime via SSE, token never shipped to client.
 
 ## Current Position
 
 **Current phase**: Phase 1 — Influx Foundation + Single-Device Shell  
-**Status**: Not started  
+**Status**: Planned (2 plans) — ready to execute  
 **Progress**: \[----------\] 0%
 
 ## Blockers / External Dependencies
@@ -33,5 +33,5 @@
 ## Session Continuity
 
 **Last activity**: UI-SPEC approved — `.planning/phases/01-influx-foundation-single-device-shell/01-UI-SPEC.md`  
-**Next action**: Plan Phase 1 (`/gsd-plan-phase 1`) using the roadmap success criteria as acceptance checks.  
+**Next action**: Execute Phase 1 (`/gsd-execute-phase 1`) — run both plans (Wave 1 then Wave 2).  
 **Guardrails**: avoid accepting any host/org/bucket/token parameters from client input (SSRF + secret leakage risk).
