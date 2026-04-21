@@ -123,8 +123,8 @@ const char* MQTTConfigManager::getSubsTopic() const {
   return subsTopic_;
 }
 
-const char* MQTTConfigManager::getStatusTopic() const {
-  return statusTopic_;
+const char* MQTTConfigManager::getDeviceInfoTopic() const {
+  return deviceInfoTopic_;
 }
 
 const char* MQTTConfigManager::getDeviceId() const {
@@ -152,8 +152,8 @@ bool MQTTConfigManager::publishPubs(const char* jsonPayload, bool retained) {
   return publishJson(pubsTopic_, jsonPayload, retained);
 }
 
-bool MQTTConfigManager::publishStatus(const char* jsonPayload, bool retained) {
-  return publishJson(statusTopic_, jsonPayload, retained);
+bool MQTTConfigManager::publishDeviceInfo(const char* jsonPayload, bool retained) {
+  return publishJson(deviceInfoTopic_, jsonPayload, retained);
 }
 
 void MQTTConfigManager::setMessageCallback(MessageCallback callback) {
@@ -177,7 +177,7 @@ void MQTTConfigManager::printStatus(Print& out) {
   out.printf("[MQTT] Password    : %s\n", hasValue(config_.password) ? maskedPassword : "-");
   out.printf("[MQTT] Pubs Topic  : %s\n", pubsTopic_);
   out.printf("[MQTT] Subs Topic  : %s\n", subsTopic_);
-  out.printf("[MQTT] Status Topic: %s\n", statusTopic_);
+  out.printf("[MQTT] Info Topic   : %s\n", deviceInfoTopic_);
   out.printf("[MQTT] WiFi        : %s\n", (WiFi.status() == WL_CONNECTED) ? "Connected" : "Not Connected");
   out.printf("[MQTT] ClientState : %d (%s)\n",
              static_cast<int>(mqttClient_.state()),
@@ -245,7 +245,7 @@ void MQTTConfigManager::buildTopics() {
 
   std::snprintf(pubsTopic_, sizeof(pubsTopic_), "%s/%s/%s", prefix, deviceId, kPubsSuffix);
   std::snprintf(subsTopic_, sizeof(subsTopic_), "%s/%s/%s", prefix, deviceId, kSubsSuffix);
-  std::snprintf(statusTopic_, sizeof(statusTopic_), "%s/%s/%s", prefix, deviceId, kStatusSuffix);
+  std::snprintf(deviceInfoTopic_, sizeof(deviceInfoTopic_), "%s/%s", prefix, kDeviceInfoSuffix);
 }
 
 void MQTTConfigManager::setStatus(Status status) {

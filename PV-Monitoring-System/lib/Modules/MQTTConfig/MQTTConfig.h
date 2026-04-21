@@ -16,7 +16,8 @@ static constexpr char kDefaultUsername[] = "";
 static constexpr char kDefaultPassword[] = "";
 static constexpr char kPubsSuffix[] = "pubs";
 static constexpr char kSubsSuffix[] = "subs";
-static constexpr char kStatusSuffix[] = "status";
+/// Topic global status perangkat (tanpa deviceId di path): `{topicPrefix}/info`
+static constexpr char kDeviceInfoSuffix[] = "info";
 
 enum class Status : uint8_t {
   Idle = 0,
@@ -62,12 +63,13 @@ class MQTTConfigManager {
 
   const char* getPubsTopic() const;
   const char* getSubsTopic() const;
-  const char* getStatusTopic() const;
+  /// `pv-monitoring/info` — satu topic untuk semua device; `device_id` ada di JSON.
+  const char* getDeviceInfoTopic() const;
   const char* getDeviceId() const;
 
   bool publishJson(const char* topic, const char* jsonPayload, bool retained = false);
   bool publishPubs(const char* jsonPayload, bool retained = false);
-  bool publishStatus(const char* jsonPayload, bool retained = false);
+  bool publishDeviceInfo(const char* jsonPayload, bool retained = false);
 
   void setMessageCallback(MessageCallback callback);
 
@@ -90,7 +92,7 @@ class MQTTConfigManager {
 
   char pubsTopic_[kMaxTopicLength] = {};
   char subsTopic_[kMaxTopicLength] = {};
-  char statusTopic_[kMaxTopicLength] = {};
+  char deviceInfoTopic_[kMaxTopicLength] = {};
 
   MessageCallback messageCallback_{};
 

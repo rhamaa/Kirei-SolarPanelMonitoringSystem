@@ -4,9 +4,12 @@
 #include "../WifiTask/WifiTask.h"
 #include "../dataTask/dataTask.h"
 
+#include <InfluxDbClient.h>
 #include <WiFi.h>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <time.h>
 
 namespace SendDataTask {
 
@@ -15,7 +18,8 @@ namespace {
 Config gConfig;
 TaskHandle_t gTaskHandle = nullptr;
 MQTTModule::MQTTConfigManager gMqttManager;
-InfluxModule::InfluxClient gInfluxClient;
+InfluxDBClient* gInfluxClient = nullptr;
+bool gInfluxNtpSynced = false;
 Status gStatus = Status::Idle;
 bool gStarted = false;
 bool gLastMqttConnected = false;
@@ -48,6 +52,11 @@ void setStatus(Status status) {
   gStatus = status;
 }
 
+bool influxSettingsValid(const InfluxSettings& s) {
+  return s.enabled && s.url != nullptr && s.url[0] != '\0' && s.org != nullptr && s.org[0] != '\0' &&
+         s.bucket != nullptr && s.bucket[0] != '\0' && s.token != nullptr && s.token[0] != '\0';
+}
+
 void printBanner() {
   if (!gConfig.printEventsToSerial) {
     return;
@@ -59,7 +68,18 @@ void printBanner() {
   Serial.println("=====================================");
   gMqttManager.printStatus(Serial);
   Serial.println();
-  gInfluxClient.printStatus(Serial);
+  Serial.println("=====================================");
+  Serial.println("          InfluxDB (Arduino client)");
+  Serial.println("=====================================");
+  if (gInfluxClient != nullptr) {
+    Serial.printf("[INFLUX] URL         : %s\n", gConfig.influx.url);
+    Serial.printf("[INFLUX] Org         : %s\n", gConfig.influx.org);
+    Serial.printf("[INFLUX] Bucket      : %s\n", gConfig.influx.bucket);
+    Serial.printf("[INFLUX] Measurement : %s\n", gConfig.influx.measurement);
+    Serial.printf("[INFLUX] TZ (NTP)    : %s\n", gConfig.influx.tzInfo);
+  } else {
+    Serial.println("[INFLUX] Disabled (no URL/token atau enabled=false)");
+  }
   Serial.printf("[SEND] Data Interval  : %lu ms\n",
                 static_cast<unsigned long>(gConfig.publishIntervalMs));
   Serial.printf("[SEND] Status Interval: %lu ms\n",
@@ -67,11 +87,18 @@ void printBanner() {
   Serial.println();
 }
 
-size_t buildStatusPayload(char* buffer, size_t bufferSize) {
+size_t buildDeviceInfoPayload(char* buffer, size_t bufferSize, Status sendTaskStatus) {
   const long rssi = static_cast<long>(WiFi.RSSI());
   const String ip = WifiTask::getIpAddress();
   const String ssid = WifiTask::getSsid();
   const unsigned long uptimeMs = millis();
+
+  PVSense::MpptData pvProbe{};
+  const bool mpptDataOk = DataTask::getLatestPVData(pvProbe);
+  (void)mpptDataOk;
+  const char* mpptPoll = PVSense::PVData::pollStatusToString(DataTask::getLastPVStatus());
+  const char* invRead =
+      InverterSense::InverterData::readStatusToString(DataTask::getLastInverterStatus());
 
   const int written = std::snprintf(
       buffer,
@@ -82,13 +109,24 @@ size_t buildStatusPayload(char* buffer, size_t bufferSize) {
       "\"wifi_rssi\":%ld,"
       "\"ip\":\"%s\","
       "\"uptime_ms\":%lu,"
+      "\"mqtt\":\"connected\","
+      "\"pv_sensor_data_ok\":%s,"
+      "\"mppt_poll_status\":\"%s\","
+      "\"inverter_read_status\":\"%s\","
+      "\"send_task_status\":\"%s\","
+      "\"data_topic\":\"%s\","
       "\"status\":\"online\"}",
       gMqttManager.getDeviceId(),
       gConfig.firmwareVersion,
       ssid.c_str(),
       rssi,
       ip.c_str(),
-      uptimeMs);
+      uptimeMs,
+      mpptDataOk ? "true" : "false",
+      mpptPoll,
+      invRead,
+      taskStatusToString(sendTaskStatus),
+      gMqttManager.getPubsTopic());
 
   if (written <= 0 || written >= static_cast<int>(bufferSize)) {
     return 0;
@@ -96,19 +134,19 @@ size_t buildStatusPayload(char* buffer, size_t bufferSize) {
   return static_cast<size_t>(written);
 }
 
-bool publishStatus() {
-  char payload[384] = {};
-  if (buildStatusPayload(payload, sizeof(payload)) == 0U) {
+bool publishDeviceInfoToMqtt(Status sendTaskStatus) {
+  char payload[768] = {};
+  if (buildDeviceInfoPayload(payload, sizeof(payload), sendTaskStatus) == 0U) {
     return false;
   }
-  return gMqttManager.publishStatus(payload);
+  return gMqttManager.publishDeviceInfo(payload);
 }
 
 size_t buildDataPayload(char* buffer,
-                       size_t bufferSize,
-                       const PVSense::MpptData& pvData,
-                       const InverterSense::InverterSnapshot& inverterData,
-                       bool hasInverterData) {
+                        size_t bufferSize,
+                        const PVSense::MpptData& pvData,
+                        const InverterSense::InverterSnapshot& inverterData,
+                        bool hasInverterData) {
   const int written = std::snprintf(
       buffer,
       bufferSize,
@@ -162,61 +200,82 @@ size_t buildDataPayload(char* buffer,
   return static_cast<size_t>(written);
 }
 
-size_t buildLineProtocol(char* buffer,
-                         size_t bufferSize,
-                         const PVSense::MpptData& pvData,
-                         const InverterSense::InverterSnapshot& inverterData,
-                         bool hasInverterData) {
-  const InfluxModule::Config influxConfig = gInfluxClient.getConfig();
-  const char* measurement =
-      (influxConfig.measurement && influxConfig.measurement[0] != '\0')
-          ? influxConfig.measurement
-          : InfluxModule::kDefaultMeasurement;
+Point buildInfluxPoint(const PVSense::MpptData& pvData,
+                       const InverterSense::InverterSnapshot& inverterData,
+                       bool hasInverterData) {
+  const char* meas =
+      (gConfig.influx.measurement != nullptr && gConfig.influx.measurement[0] != '\0')
+          ? gConfig.influx.measurement
+          : "pv_monitoring";
 
-  const int written = std::snprintf(
-      buffer,
-      bufferSize,
-      "%s,device_id=%s,charging_status=%u "
-      "mppt_pv_voltage=%.3f,"
-      "mppt_charging_power=%.3f,"
-      "mppt_charging_current=%.3f,"
-      "mppt_battery_voltage=%.3f,"
-      "mppt_load_current=%.3f,"
-      "mppt_load_power=%.3f,"
-      "mppt_fault_code=%ui,"
-      "inverter_valid=%s,"
-      "inverter_ac_voltage=%.3f,"
-      "inverter_ac_current=%.3f,"
-      "inverter_ac_power=%.3f,"
-      "inverter_ac_energy=%.3f,"
-      "inverter_ac_frequency=%.3f,"
-      "inverter_ac_power_factor=%.3f,"
-      "inverter_ac_apparent_power=%.3f,"
-      "wifi_rssi=%ldi",
-      measurement,
-      gMqttManager.getDeviceId(),
-      static_cast<unsigned>(pvData.chargingStatus),
-      static_cast<double>(pvData.pvVoltage),
-      static_cast<double>(pvData.chargingPower),
-      static_cast<double>(pvData.chargingCurrent),
-      static_cast<double>(pvData.batteryVoltage),
-      static_cast<double>(pvData.loadCurrent),
-      static_cast<double>(pvData.loadPower),
-      static_cast<unsigned>(pvData.faultCode),
-      hasInverterData ? "true" : "false",
-      static_cast<double>(hasInverterData ? inverterData.voltage : 0.0f),
-      static_cast<double>(hasInverterData ? inverterData.current : 0.0f),
-      static_cast<double>(hasInverterData ? inverterData.power : 0.0f),
-      static_cast<double>(hasInverterData ? inverterData.energy : 0.0f),
-      static_cast<double>(hasInverterData ? inverterData.frequency : 0.0f),
-      static_cast<double>(hasInverterData ? inverterData.powerFactor : 0.0f),
-      static_cast<double>(hasInverterData ? inverterData.apparentPower : 0.0f),
-      static_cast<long>(WiFi.RSSI()));
+  // Brace-init: `Point p(String(...))` adalah *most vexing parse* (deklarasi fungsi), bukan objek.
+  Point point{String(meas)};
+  point.addTag("device_id", String(gMqttManager.getDeviceId()));
+  point.addTag("charging_status", String(static_cast<unsigned>(pvData.chargingStatus)));
 
-  if (written <= 0 || written >= static_cast<int>(bufferSize)) {
-    return 0;
+  point.addField("mppt_pv_voltage", static_cast<double>(pvData.pvVoltage));
+  point.addField("mppt_charging_power", static_cast<double>(pvData.chargingPower));
+  point.addField("mppt_charging_current", static_cast<double>(pvData.chargingCurrent));
+  point.addField("mppt_battery_voltage", static_cast<double>(pvData.batteryVoltage));
+  point.addField("mppt_load_current", static_cast<double>(pvData.loadCurrent));
+  point.addField("mppt_load_power", static_cast<double>(pvData.loadPower));
+  point.addField("mppt_fault_code", static_cast<long>(pvData.faultCode));
+
+  point.addField("inverter_valid", hasInverterData);
+  point.addField("inverter_ac_voltage", static_cast<double>(hasInverterData ? inverterData.voltage : 0.0f));
+  point.addField("inverter_ac_current", static_cast<double>(hasInverterData ? inverterData.current : 0.0f));
+  point.addField("inverter_ac_power", static_cast<double>(hasInverterData ? inverterData.power : 0.0f));
+  point.addField("inverter_ac_energy", static_cast<double>(hasInverterData ? inverterData.energy : 0.0f));
+  point.addField("inverter_ac_frequency", static_cast<double>(hasInverterData ? inverterData.frequency : 0.0f));
+  point.addField("inverter_ac_power_factor", static_cast<double>(hasInverterData ? inverterData.powerFactor : 0.0f));
+  point.addField("inverter_ac_apparent_power",
+                 static_cast<double>(hasInverterData ? inverterData.apparentPower : 0.0f));
+
+  point.addField("wifi_rssi", static_cast<long>(WiFi.RSSI()));
+  point.setTime(WritePrecision::MS);
+  return point;
+}
+
+/// NTP + TZ (ganti `timeSync()` dari Helpers.h — path header tidak konsisten antar versi library).
+void syncTimeWithNtp(const char* tzInfo) {
+  if (tzInfo != nullptr && tzInfo[0] != '\0') {
+    setenv("TZ", tzInfo, 1);
+    tzset();
   }
-  return static_cast<size_t>(written);
+  configTime(0, 0, "pool.ntp.org", "time.nis.gov");
+  for (int i = 0; i < 100; ++i) {
+    const time_t now = time(nullptr);
+    if (now > 1577836800) {  // > 2020-01-01 UTC
+      return;
+    }
+    delay(100);
+  }
+}
+
+void maybeSyncInfluxTimeAndValidate() {
+  if (gInfluxClient == nullptr || !gConfig.influx.enabled || gInfluxNtpSynced) {
+    return;
+  }
+  if (!WifiTask::isConnected()) {
+    return;
+  }
+
+  gInfluxNtpSynced = true;
+
+  const char* tz = (gConfig.influx.tzInfo != nullptr && gConfig.influx.tzInfo[0] != '\0')
+                      ? gConfig.influx.tzInfo
+                      : "UTC7";
+  syncTimeWithNtp(tz);
+
+  if (gConfig.printEventsToSerial) {
+    if (gInfluxClient->validateConnection()) {
+      Serial.print("[INFLUX] Connected to InfluxDB: ");
+      Serial.println(gInfluxClient->getServerUrl());
+    } else {
+      Serial.print("[INFLUX] Connection check failed: ");
+      Serial.println(gInfluxClient->getLastErrorMessage());
+    }
+  }
 }
 
 void handleIncomingMessage(const char* topic, const uint8_t* payload, unsigned int length) {
@@ -229,7 +288,6 @@ void handleIncomingMessage(const char* topic, const uint8_t* payload, unsigned i
   std::memcpy(message, payload, copyLength);
   message[copyLength] = '\0';
 
-  // Trim trailing whitespace/newline.
   for (size_t i = copyLength; i > 0U; --i) {
     const char ch = message[i - 1U];
     if (ch == '\r' || ch == '\n' || ch == ' ' || ch == '\t') {
@@ -243,14 +301,13 @@ void handleIncomingMessage(const char* topic, const uint8_t* payload, unsigned i
     Serial.printf("[SUBS] %s <- %s\n", topic, message);
   }
 
-  // Accept either a plain command string ("ping") or a JSON like {"cmd":"ping"}.
   const bool isPing =
       (std::strcmp(message, "ping") == 0) || (std::strstr(message, "\"ping\"") != nullptr);
 
   if (isPing) {
-    const bool ok = publishStatus();
+    const bool ok = publishDeviceInfoToMqtt(gStatus);
     if (gConfig.printEventsToSerial) {
-      Serial.printf("[SUBS] ping -> status publish %s\n", ok ? "OK" : "FAIL");
+      Serial.printf("[SUBS] ping -> info publish %s\n", ok ? "OK" : "FAIL");
     }
   }
 }
@@ -269,23 +326,31 @@ bool publishDataSnapshot(const PVSense::MpptData& pvData) {
   }
 
   bool influxOk = false;
-  {
-    char linePayload[1024] = {};
-    if (buildLineProtocol(linePayload, sizeof(linePayload), pvData, inverterData,
-                          hasInverterData) > 0U) {
-      influxOk = gInfluxClient.writeLineProtocol(linePayload);
+  String influxErr;
+  if (gInfluxClient != nullptr && gConfig.influx.enabled) {
+    Point point = buildInfluxPoint(pvData, inverterData, hasInverterData);
+    influxOk = gInfluxClient->writePoint(point);
+    if (!influxOk) {
+      influxErr = gInfluxClient->getLastErrorMessage();
     }
   }
 
   if (gConfig.printEventsToSerial) {
-    Serial.printf(
-        "[SEND] MQTT=%s | INFLUX=%s (http=%d) | MPPT[pv=%.1fV batt=%.1fV] | INV[%s]\n",
-        mqttOk ? "OK" : "FAIL",
-        influxOk ? "OK" : (gInfluxClient.getConfig().enabled ? "FAIL" : "OFF"),
-        gInfluxClient.getLastHttpCode(),
-        pvData.pvVoltage,
-        pvData.batteryVoltage,
-        hasInverterData ? "data" : "no data");
+    if (gInfluxClient != nullptr && gConfig.influx.enabled) {
+      Serial.printf("[SEND] MQTT=%s | INFLUX=%s | %s | MPPT[pv=%.1fV batt=%.1fV] | INV[%s]\n",
+                    mqttOk ? "OK" : "FAIL",
+                    influxOk ? "OK" : "FAIL",
+                    influxOk ? "-" : influxErr.c_str(),
+                    pvData.pvVoltage,
+                    pvData.batteryVoltage,
+                    hasInverterData ? "data" : "no data");
+    } else {
+      Serial.printf("[SEND] MQTT=%s | INFLUX=OFF | MPPT[pv=%.1fV batt=%.1fV] | INV[%s]\n",
+                    mqttOk ? "OK" : "FAIL",
+                    pvData.pvVoltage,
+                    pvData.batteryVoltage,
+                    hasInverterData ? "data" : "no data");
+    }
   }
 
   return mqttOk;
@@ -320,28 +385,16 @@ void sendTaskLoop(void* parameter) {
     if (!WifiTask::isConnected()) {
       gMqttManager.disconnect();
       gStatusPublished = false;
+      gInfluxNtpSynced = false;
       setStatus(Status::WaitingWifi);
     } else if (!gMqttManager.ensureConnected()) {
       setStatus(Status::ConnectingBroker);
     } else {
+      maybeSyncInfluxTimeAndValidate();
+
       gMqttManager.loop();
 
       const unsigned long now = millis();
-
-      if (!gStatusPublished && gConfig.publishStatusOnConnect) {
-        if (publishStatus()) {
-          gStatusPublished = true;
-          gLastStatusMs = now;
-          if (gConfig.printEventsToSerial) {
-            Serial.println("[SEND] Status -> MQTT: OK");
-          }
-        }
-      } else if (gConfig.statusIntervalMs > 0U &&
-                 (now - gLastStatusMs) >= gConfig.statusIntervalMs) {
-        if (publishStatus()) {
-          gLastStatusMs = now;
-        }
-      }
 
       PVSense::MpptData pvData{};
       if (!DataTask::getLatestPVData(pvData)) {
@@ -356,6 +409,22 @@ void sendTaskLoop(void* parameter) {
           if (published) {
             gLastPublishMs = now;
           }
+        }
+      }
+
+      // Info topic global `pv-monitoring/info` — setelah status PV/ task diperbarui.
+      if (!gStatusPublished && gConfig.publishStatusOnConnect) {
+        if (publishDeviceInfoToMqtt(gStatus)) {
+          gStatusPublished = true;
+          gLastStatusMs = now;
+          if (gConfig.printEventsToSerial) {
+            Serial.println("[SEND] pv-monitoring/info -> MQTT: OK");
+          }
+        }
+      } else if (gConfig.statusIntervalMs > 0U &&
+                 (now - gLastStatusMs) >= gConfig.statusIntervalMs) {
+        if (publishDeviceInfoToMqtt(gStatus)) {
+          gLastStatusMs = now;
         }
       }
     }
@@ -385,7 +454,13 @@ bool begin(const Config& config) {
   }
 
   gMqttManager.setMessageCallback(&handleIncomingMessage);
-  gInfluxClient.begin(gConfig.influxConfig);
+
+  if (influxSettingsValid(gConfig.influx)) {
+    gInfluxClient = new InfluxDBClient(gConfig.influx.url, gConfig.influx.org, gConfig.influx.bucket,
+                                       gConfig.influx.token);
+    // tobiasschuerg/ESP8266 Influxdb v3.x — pakai WriteOptions, bukan setWritePrecision.
+    gInfluxClient->setWriteOptions(WriteOptions().writePrecision(WritePrecision::MS));
+  }
 
   printBanner();
 
@@ -421,10 +496,6 @@ Status getStatus() {
 
 MQTTModule::MQTTConfigManager& mqtt() {
   return gMqttManager;
-}
-
-InfluxModule::InfluxClient& influx() {
-  return gInfluxClient;
 }
 
 }  // namespace SendDataTask

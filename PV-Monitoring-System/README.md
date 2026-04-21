@@ -1,6 +1,6 @@
 # PV Monitoring System
 
-Firmware ESP32 untuk membaca data MPPT dan inverter, lalu mengirimkannya ke broker MQTT menggunakan `PubSubClient` dan ke **InfluxDB v2** lewat HTTP.
+Firmware ESP32 untuk membaca data MPPT dan inverter, lalu mengirimkannya ke broker MQTT menggunakan `PubSubClient` dan ke **InfluxDB v2** memakai **`tobiasschuerg/ESP8266 Influxdb`** (`InfluxDBClient` + `Point` + `WriteOptions`).
 
 ## Ringkasan
 
@@ -20,7 +20,7 @@ Board target saat ini ada di `platformio.ini`:
 - `PubSubClient`
 - `WiFiManager`
 - `PZEM-004T-v30`
-- `HTTPClient` (bawaan ESP32 Arduino core)
+- `tobiasschuerg/ESP8266 Influxdb` (`InfluxDbClient`, `Point`, `WriteOptions`; sinkron waktu NTP lewat `configTime` / `TZ`)
 
 ## Konfigurasi Default
 
@@ -33,10 +33,11 @@ Lihat `src/main.cpp` untuk konstanta yang perlu diisi sebelum flashing:
 | `kMqttServer` / `kMqttPort` | Alamat broker MQTT |
 | `kMqttUsername` / `kMqttPassword` | Kredensial MQTT (boleh string kosong) |
 | `kInfluxUrl` | Base URL InfluxDB v2, contoh `http://192.168.68.106:8086` |
-| `kInfluxOrg` | Nama organisasi InfluxDB v2 |
+| `kInfluxOrg` | Organisasi InfluxDB v2 — **nama** atau **org ID** (hex) dari UI |
 | `kInfluxBucket` | Bucket tujuan |
 | `kInfluxToken` | API token InfluxDB v2 dengan permission write ke bucket |
-| `kInfluxMeasurement` | Nama measurement (default `pv_monitoring`) |
+| `kInfluxMeasurement` | Nama measurement untuk `Point` (default `pv_monitoring`) |
+| `kInfluxTzInfo` | String `TZ` POSIX untuk `setenv` + NTP (default `UTC7`, sama contoh Influx Arduino) |
 
 ## Daftar Topic MQTT
 
@@ -48,7 +49,7 @@ Contoh dengan `DeviceID = pv-monitoring-01`:
 | --- | --- | --- |
 | `pv-monitoring/pv-monitoring-01/pubs` | Device -> Broker | Publish data sensor MPPT + inverter periodik (default 10 s) |
 | `pv-monitoring/pv-monitoring-01/subs` | Broker -> Device | Device subscribe di topic ini untuk menerima command |
-| `pv-monitoring/pv-monitoring-01/status` | Device -> Broker | Publish status device (IP, RSSI, uptime, firmware) saat konek dan periodik (default 30 s) |
+| `pv-monitoring/info` | Device -> Broker | **Satu topic global** untuk status semua device; bedakan dengan field `device_id` di JSON |
 
 ### 1. Topic pubs - payload data sensor
 
@@ -81,9 +82,11 @@ Contoh payload JSON yang dipublish ke `pv-monitoring/<DeviceID>/pubs`:
 }
 ```
 
-### 2. Topic status - payload status device
+### 2. Topic `pv-monitoring/info` — status device (global)
 
-Contoh payload JSON yang dipublish ke `pv-monitoring/<DeviceID>/status`:
+Semua unit publish ke **topic yang sama** `pv-monitoring/info`. Subscriber memakai field **`device_id`** untuk memilah perangkat.
+
+Contoh payload:
 
 ```json
 {
@@ -93,9 +96,17 @@ Contoh payload JSON yang dipublish ke `pv-monitoring/<DeviceID>/status`:
   "wifi_rssi": -58,
   "ip": "192.168.68.42",
   "uptime_ms": 123456,
+  "mqtt": "connected",
+  "pv_sensor_data_ok": false,
+  "mppt_poll_status": "Timeout",
+  "inverter_read_status": "Read Failed",
+  "send_task_status": "Waiting PV Data",
+  "data_topic": "pv-monitoring/pv-monitoring-01/pubs",
   "status": "online"
 }
 ```
+
+Field `pv_sensor_data_ok`, `mppt_poll_status`, `inverter_read_status`, dan `send_task_status` membantu saat **data tidak terkirim ke `pubs`** karena sensor tidak terhubung atau gagal baca.
 
 ### 3. Topic subs - command yang didukung
 
@@ -103,31 +114,24 @@ Kirim payload ke `pv-monitoring/<DeviceID>/subs`:
 
 | Payload | Reaksi |
 | --- | --- |
-| `ping` atau `{"cmd":"ping"}` | Device langsung publish ulang payload status ke `pv-monitoring/<DeviceID>/status` |
+| `ping` atau `{"cmd":"ping"}` | Device langsung publish ulang payload ke **`pv-monitoring/info`** |
 
 Command yang tidak dikenal akan di-log ke Serial lalu diabaikan.
 
 ## Integrasi InfluxDB v2
 
-Selain publish MQTT, pada tiap siklus `publishIntervalMs` firmware juga melakukan `POST /api/v2/write?org=<org>&bucket=<bucket>&precision=ms` ke InfluxDB v2 dengan body line protocol seperti berikut:
+Selain publish MQTT, pada tiap siklus `publishIntervalMs` firmware membangun **`Point`** (measurement `pv_monitoring`, tag `device_id` + `charging_status`, field sama seperti JSON MPPT/inverter) dan mengirimnya lewat **`InfluxDBClient::writePoint()`** dari library **`tobiasschuerg/ESP8266 Influxdb`** (konstruktor 4 argumen: URL, org, bucket, token — koneksi HTTP ke server lokal).
 
-```
-pv_monitoring,device_id=pv-monitoring-01,charging_status=0 mppt_pv_voltage=18.500,mppt_charging_power=120.000,mppt_charging_current=6.480,mppt_battery_voltage=13.800,mppt_load_current=1.250,mppt_load_power=17.300,mppt_fault_code=0i,inverter_valid=true,inverter_ac_voltage=220.400,inverter_ac_current=0.431,inverter_ac_power=92.500,inverter_ac_energy=1.234,inverter_ac_frequency=50.000,inverter_ac_power_factor=0.970,inverter_ac_apparent_power=95.400,wifi_rssi=-58i
-```
+Setelah WiFi terhubung, firmware melakukan **sinkron NTP** (`configTime` + `setenv("TZ", ...)`) sekali per siklus koneksi WiFi, lalu **`validateConnection()`** (contoh resmi Influx) untuk mengecek koneksi ke server.
 
-Header yang dipakai:
-
-- `Authorization: Token <INFLUX_TOKEN>`
-- `Content-Type: text/plain; charset=utf-8`
-
-InfluxDB v2 mengembalikan `204 No Content` jika tulis sukses. Untuk menonaktifkan InfluxDB tanpa menghapus kode, set `config.influxConfig.enabled = false` di `main.cpp`.
+Untuk menonaktifkan tulis Influx, set `kInfluxEnabled = false` di `src/main.cpp`.
 
 ### Menyiapkan InfluxDB v2
 
 1. Buka UI InfluxDB di `http://192.168.68.106:8086`, login.
-2. Buat bucket, misalnya `solar`.
+2. Buat bucket (contoh default firmware: `pv-monitoring`).
 3. Buat API token dengan permission **Write** ke bucket tersebut.
-4. Isi `kInfluxOrg`, `kInfluxBucket`, `kInfluxToken` di `src/main.cpp`.
+4. Isi `kInfluxOrg` (nama atau **org ID** hex dari UI), `kInfluxBucket`, `kInfluxToken` di `src/main.cpp`.
 
 ## Cara Mengubah Konfigurasi Runtime
 
@@ -148,7 +152,7 @@ void setup() {
 
   SendDataTask::Config sendConfig{};
   sendConfig.firmwareVersion = "1.0.0";
-  sendConfig.publishIntervalMs = 10000;
+  sendConfig.publishIntervalMs = 5000;
   sendConfig.statusIntervalMs = 30000;
 
   sendConfig.mqttConfig.server = "192.168.1.10";
@@ -158,12 +162,13 @@ void setup() {
   sendConfig.mqttConfig.username = "mqtt-user";
   sendConfig.mqttConfig.password = "mqtt-pass";
 
-  sendConfig.influxConfig.url = "http://192.168.68.106:8086";
-  sendConfig.influxConfig.org = "YOUR_ORG";
-  sendConfig.influxConfig.bucket = "solar";
-  sendConfig.influxConfig.token = "YOUR_INFLUXDB_V2_TOKEN";
-  sendConfig.influxConfig.measurement = "pv_monitoring";
-  sendConfig.influxConfig.enabled = true;
+  sendConfig.influx.url = "http://192.168.68.106:8086";
+  sendConfig.influx.org = "YOUR_ORG_OR_ORG_ID";
+  sendConfig.influx.bucket = "pv-monitoring";
+  sendConfig.influx.token = "YOUR_INFLUXDB_V2_TOKEN";
+  sendConfig.influx.measurement = "pv_monitoring";
+  sendConfig.influx.tzInfo = "UTC7";
+  sendConfig.influx.enabled = true;
 
   SendDataTask::begin(sendConfig);
 }
@@ -177,10 +182,10 @@ void loop() {
 
 1. Device konek WiFi (WifiTask).
 2. `SendDataTask` konek ke broker MQTT dan subscribe ke topic `pv-monitoring/<DeviceID>/subs`.
-3. Setelah konek, firmware publish status awal ke `pv-monitoring/<DeviceID>/status`.
+3. Setelah konek, firmware publish info awal ke **`pv-monitoring/info`** (setelah status sensor/task diperbarui).
 4. `DataTask` terus-menerus poll MPPT (Modbus RTU) dan inverter (PZEM-004Tv3).
-5. Tiap `publishIntervalMs`, `SendDataTask` publish data JSON ke `.../pubs` dan menulis line protocol ke InfluxDB v2.
-6. Tiap `statusIntervalMs`, firmware publish status device ke `.../status`.
+5. Tiap `publishIntervalMs`, `SendDataTask` publish data JSON ke `.../pubs` dan menulis **`Point`** ke InfluxDB v2 lewat library Arduino.
+6. Tiap `statusIntervalMs`, firmware publish info device ke **`pv-monitoring/info`**.
 7. Saat ada message di `.../subs`, firmware eksekusi command (saat ini: `ping`).
 
 ## Build
@@ -192,6 +197,6 @@ pio run -e 4d_systems_esp32s3_gen4_r8n16
 ## Catatan
 
 - Buffer MQTT diset `1024` agar payload JSON data tetap muat.
-- Stack task `SendDataTask` dinaikkan menjadi 8192 karena HTTPClient + buffer line protocol.
+- Stack task `SendDataTask` 8192 byte karena library Influx memakai HTTP client di bawahnya.
 - Di serial monitor, kirim karakter `R` atau `r` untuk reset counter energy inverter.
 - InfluxDB v2 endpoint default (`kInfluxUrl`) adalah `http://192.168.68.106:8086` sesuai permintaan.

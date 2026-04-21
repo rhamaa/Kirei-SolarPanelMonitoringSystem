@@ -8,22 +8,29 @@ namespace {
 constexpr char kDeviceId[] = "pv-monitoring-01";
 constexpr char kFirmwareVersion[] = "1.0.0";
 
-constexpr char kMqttServer[] = "broker.hivemq.com";
+// RabbitMQ: 15672 = Management UI; MQTT = 1883 (plugin rabbitmq_mqtt).
+constexpr char kMqttServer[] = "192.168.68.106";
 constexpr uint16_t kMqttPort = 1883;
-constexpr char kMqttUsername[] = "";
-constexpr char kMqttPassword[] = "";
+constexpr char kMqttUsername[] = "mqtt_user";
+constexpr char kMqttPassword[] = "mqtt_password";
 
+// InfluxDB v2 — sama pola dengan contoh resmi InfluxDbClient (HTTP lokal, tanpa cert Cloud).
 constexpr char kInfluxUrl[] = "http://192.168.68.106:8086";
-constexpr char kInfluxOrg[] = "YOUR_ORG";
-constexpr char kInfluxBucket[] = "YOUR_BUCKET";
-constexpr char kInfluxToken[] = "YOUR_INFLUXDB_V2_TOKEN";
+// Boleh org **nama** atau **org ID** hex dari UI Influx.
+constexpr char kInfluxOrg[] = "86d3a746830ba285";
+constexpr char kInfluxBucket[] = "pv-monitoring";
+constexpr char kInfluxToken[] =
+    "qg9E8G99bpb3AIN3YI_oottr6gX8eV9Q0nFk_RIZRAhT8rD3mX76R26NsGk7nM1CqqjuoKnNyHtw7FdN2YF3OA==";
 constexpr char kInfluxMeasurement[] = "pv_monitoring";
+/// POSIX TZ untuk `timeSync()` (contoh Influx Arduino: "UTC7").
+constexpr char kInfluxTzInfo[] = "UTC7";
+constexpr bool kInfluxEnabled = true;
 
 SendDataTask::Config buildSendConfig() {
   SendDataTask::Config config{};
 
   config.firmwareVersion = kFirmwareVersion;
-  config.publishIntervalMs = 10000;
+  config.publishIntervalMs = 5000;
   config.statusIntervalMs = 30000;
   config.publishStatusOnConnect = true;
 
@@ -34,12 +41,13 @@ SendDataTask::Config buildSendConfig() {
   config.mqttConfig.username = kMqttUsername;
   config.mqttConfig.password = kMqttPassword;
 
-  config.influxConfig.url = kInfluxUrl;
-  config.influxConfig.org = kInfluxOrg;
-  config.influxConfig.bucket = kInfluxBucket;
-  config.influxConfig.token = kInfluxToken;
-  config.influxConfig.measurement = kInfluxMeasurement;
-  config.influxConfig.enabled = true;
+  config.influx.url = kInfluxUrl;
+  config.influx.org = kInfluxOrg;
+  config.influx.bucket = kInfluxBucket;
+  config.influx.token = kInfluxToken;
+  config.influx.measurement = kInfluxMeasurement;
+  config.influx.tzInfo = kInfluxTzInfo;
+  config.influx.enabled = kInfluxEnabled;
 
   return config;
 }
