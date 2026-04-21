@@ -7,7 +7,7 @@
 
 namespace SendDataTask {
 
-/// Konfigurasi InfluxDB v2 (library resmi influxdata/influxdb-client-arduino).
+/// Konfigurasi InfluxDB v2 (library tobiasschuerg/ESP8266 Influxdb).
 /// `org` boleh nama organisasi atau **org ID** hex dari UI Influx.
 struct InfluxSettings {
   const char* url = nullptr;

@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <freertos/queue.h>
 #include <time.h>
 
 namespace SendDataTask {
@@ -19,6 +20,8 @@ Config gConfig;
 TaskHandle_t gTaskHandle = nullptr;
 MQTTModule::MQTTConfigManager gMqttManager;
 InfluxDBClient* gInfluxClient = nullptr;
+QueueHandle_t gInfluxQueue = nullptr;
+TaskHandle_t gInfluxTaskHandle = nullptr;
 bool gInfluxNtpSynced = false;
 Status gStatus = Status::Idle;
 bool gStarted = false;
@@ -26,6 +29,12 @@ bool gLastMqttConnected = false;
 bool gStatusPublished = false;
 unsigned long gLastPublishMs = 0;
 unsigned long gLastStatusMs = 0;
+
+struct InfluxSample {
+  PVSense::MpptData pvData{};
+  InverterSense::InverterSnapshot inverterData{};
+  bool hasInverterData = false;
+};
 
 const char* taskStatusToString(Status status) {
   switch (status) {
@@ -278,6 +287,41 @@ void maybeSyncInfluxTimeAndValidate() {
   }
 }
 
+void influxTaskLoop(void* parameter) {
+  (void)parameter;
+
+  for (;;) {
+    if (gInfluxClient == nullptr || !gConfig.influx.enabled || gInfluxQueue == nullptr) {
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
+    }
+
+    if (!WifiTask::isConnected()) {
+      vTaskDelay(pdMS_TO_TICKS(500));
+      continue;
+    }
+
+    // NTP + validate connection bisa blocking → lakukan di task Influx, bukan task MQTT.
+    maybeSyncInfluxTimeAndValidate();
+
+    InfluxSample sample{};
+    if (xQueueReceive(gInfluxQueue, &sample, pdMS_TO_TICKS(1000)) != pdTRUE) {
+      continue;
+    }
+
+    const Point point =
+        buildInfluxPoint(sample.pvData, sample.inverterData, sample.hasInverterData);
+
+    // writePoint() berpotensi blocking (HTTP). Ini sengaja dipisahkan dari loop MQTT.
+    Point writable = point;
+    const bool ok = gInfluxClient->writePoint(writable);
+    if (!ok && gConfig.printEventsToSerial) {
+      Serial.print("[INFLUX] writePoint failed: ");
+      Serial.println(gInfluxClient->getLastErrorMessage());
+    }
+  }
+}
+
 void handleIncomingMessage(const char* topic, const uint8_t* payload, unsigned int length) {
   if (topic == nullptr || std::strcmp(topic, gMqttManager.getSubsTopic()) != 0) {
     return;
@@ -325,22 +369,38 @@ bool publishDataSnapshot(const PVSense::MpptData& pvData) {
     mqttOk = gMqttManager.publishPubs(payload);
   }
 
-  bool influxOk = false;
-  String influxErr;
-  if (gInfluxClient != nullptr && gConfig.influx.enabled) {
-    Point point = buildInfluxPoint(pvData, inverterData, hasInverterData);
-    influxOk = gInfluxClient->writePoint(point);
-    if (!influxOk) {
-      influxErr = gInfluxClient->getLastErrorMessage();
+  bool influxQueued = false;
+  bool influxDropped = false;
+  if (gInfluxClient != nullptr && gConfig.influx.enabled && gInfluxQueue != nullptr) {
+    InfluxSample sample{};
+    sample.pvData = pvData;
+    sample.inverterData = inverterData;
+    sample.hasInverterData = hasInverterData;
+
+    // Non-blocking enqueue. Kalau penuh, drop item tertua lalu coba sekali lagi.
+    if (xQueueSend(gInfluxQueue, &sample, 0) == pdTRUE) {
+      influxQueued = true;
+    } else {
+      InfluxSample dropped{};
+      (void)xQueueReceive(gInfluxQueue, &dropped, 0);
+      if (xQueueSend(gInfluxQueue, &sample, 0) == pdTRUE) {
+        influxQueued = true;
+        influxDropped = true;
+      } else {
+        influxDropped = true;
+      }
     }
   }
 
   if (gConfig.printEventsToSerial) {
     if (gInfluxClient != nullptr && gConfig.influx.enabled) {
-      Serial.printf("[SEND] MQTT=%s | INFLUX=%s | %s | MPPT[pv=%.1fV batt=%.1fV] | INV[%s]\n",
+      const char* influxState = (gInfluxQueue == nullptr)
+                                    ? "OFF"
+                                    : (influxQueued ? (influxDropped ? "QUEUED(drop-old)" : "QUEUED")
+                                                    : "DROP(queue-full)");
+      Serial.printf("[SEND] MQTT=%s | INFLUX=%s | MPPT[pv=%.1fV batt=%.1fV] | INV[%s]\n",
                     mqttOk ? "OK" : "FAIL",
-                    influxOk ? "OK" : "FAIL",
-                    influxOk ? "-" : influxErr.c_str(),
+                    influxState,
                     pvData.pvVoltage,
                     pvData.batteryVoltage,
                     hasInverterData ? "data" : "no data");
@@ -390,8 +450,6 @@ void sendTaskLoop(void* parameter) {
     } else if (!gMqttManager.ensureConnected()) {
       setStatus(Status::ConnectingBroker);
     } else {
-      maybeSyncInfluxTimeAndValidate();
-
       gMqttManager.loop();
 
       const unsigned long now = millis();
@@ -460,6 +518,18 @@ bool begin(const Config& config) {
                                        gConfig.influx.token);
     // tobiasschuerg/ESP8266 Influxdb v3.x — pakai WriteOptions, bukan setWritePrecision.
     gInfluxClient->setWriteOptions(WriteOptions().writePrecision(WritePrecision::MS));
+
+    // Queue + task terpisah supaya Influx (HTTP) tidak nge-block MQTT publish.
+    gInfluxQueue = xQueueCreate(10, sizeof(InfluxSample));
+    if (gInfluxQueue != nullptr) {
+      (void)xTaskCreatePinnedToCore(influxTaskLoop,
+                                   "InfluxTask",
+                                   8192,
+                                   nullptr,
+                                   gConfig.priority,
+                                   &gInfluxTaskHandle,
+                                   0);
+    }
   }
 
   printBanner();
