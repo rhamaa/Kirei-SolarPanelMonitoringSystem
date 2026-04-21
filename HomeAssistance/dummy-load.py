@@ -20,8 +20,8 @@ MQTT_PASS      = "mqtt_password"
 MQTT_CLIENT_ID = "solar-panel-01"
 PUBLISH_INTERVAL = 5
 
-DEVICE_ID      = "solar_panel_01"
-DEVICE_NAME    = "Solar Panel 01"
+DEVICE_ID      = "dummy_solar_panel_01"
+DEVICE_NAME    = "Dummy Solar Panel 01"
 STATE_TOPIC    = f"solar/{DEVICE_ID}/state"
 AVAIL_TOPIC    = f"solar/{DEVICE_ID}/availability"
 DISCOVERY_BASE = "homeassistant"
