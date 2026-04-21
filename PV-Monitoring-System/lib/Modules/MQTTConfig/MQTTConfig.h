@@ -6,14 +6,13 @@
 
 namespace MQTTModule {
 
-static constexpr char kDefaultServer[] = "192.168.68.106";
+static constexpr char kDefaultServer[] = "broker.hivemq.com";
 static constexpr uint16_t kDefaultPort = 1883;
-static constexpr char kDefaultClientId[] = "pv-monitoring-esp32";
-static constexpr char kDefaultUsername[] = "mqtt_user";
-static constexpr char kDefaultPassword[] = "mqtt_password";
-static constexpr char kDefaultDataTopic[] = "solar/solar_panel_01/state";
-static constexpr char kDefaultInfoTopic[] = "solar/solar_panel_01/info";
-static constexpr char kDefaultAvailabilityTopic[] = "solar/solar_panel_01/availability";
+static constexpr char kDefaultClientId[] = "pv-monitoring-client";
+static constexpr char kDefaultUsername[] = "";
+static constexpr char kDefaultPassword[] = "";
+static constexpr char kDefaultDataTopic[] = "pv-monitoring/data";
+static constexpr char kDefaultInfoTopic[] = "pv-monitoring/info";
 
 enum class Status : uint8_t {
   Idle = 0,
@@ -33,7 +32,6 @@ struct Config {
   const char* password = kDefaultPassword;
   const char* dataTopic = kDefaultDataTopic;
   const char* infoTopic = kDefaultInfoTopic;
-  const char* availabilityTopic = kDefaultAvailabilityTopic;
   uint16_t keepAliveSeconds = 60;
   uint16_t socketTimeoutSeconds = 15;
   uint16_t bufferSize = 1024;
@@ -57,7 +55,6 @@ class MQTTConfigManager {
   bool publishJson(const char* topic, const char* jsonPayload, bool retained = false);
   bool publishDataJson(const char* jsonPayload, bool retained = false);
   bool publishInfoJson(const char* jsonPayload, bool retained = false);
-  bool publishAvailability(bool online, bool retained = true);
 
   bool publishData(const char* key, float value, uint8_t decimals = 2);
   bool publishData(const char* key, int32_t value);

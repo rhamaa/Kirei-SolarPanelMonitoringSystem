@@ -25,9 +25,6 @@ struct Config {
   uint32_t publishIntervalMs = 10000;
   bool printEventsToSerial = true;
   bool publishInfoOnConnect = true;
-  const char* deviceId = "solar_panel_01";
-  const char* deviceName = "Solar Panel 01";
-  const char* swVersion = "2.0.0";
   MQTTModule::Config mqttConfig{};
 };
 

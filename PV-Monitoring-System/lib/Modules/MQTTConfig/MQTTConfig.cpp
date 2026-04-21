@@ -63,20 +63,10 @@ bool MQTTConfigManager::ensureConnected() {
   setStatus(Status::Connecting);
   lastConnectAttemptMs_ = millis();
 
-  bool connected = false;
-  if (hasValue(config_.availabilityTopic)) {
-    connected = hasValue(config_.username)
-                    ? mqttClient_.connect(config_.clientId,
-                                         config_.username,
-                                         config_.password,
-                                         config_.availabilityTopic, 1, true, "offline")
-                    : mqttClient_.connect(config_.clientId,
-                                         config_.availabilityTopic, 1, true, "offline");
-  } else {
-    connected = hasValue(config_.username)
-                    ? mqttClient_.connect(config_.clientId, config_.username, config_.password)
-                    : mqttClient_.connect(config_.clientId);
-  }
+  const bool connected =
+      hasValue(config_.username)
+          ? mqttClient_.connect(config_.clientId, config_.username, config_.password)
+          : mqttClient_.connect(config_.clientId);
   setStatus(connected ? Status::Connected : Status::ConnectFailed);
   return connected;
 }
@@ -131,21 +121,6 @@ bool MQTTConfigManager::publishDataJson(const char* jsonPayload, bool retained) 
 
 bool MQTTConfigManager::publishInfoJson(const char* jsonPayload, bool retained) {
   return publishJson(config_.infoTopic, jsonPayload, retained);
-}
-
-bool MQTTConfigManager::publishAvailability(bool online, bool retained) {
-  if (!hasValue(config_.availabilityTopic)) {
-    return false;
-  }
-  if (!ensureConnected()) {
-    return false;
-  }
-  const bool published =
-      mqttClient_.publish(config_.availabilityTopic, online ? "online" : "offline", retained);
-  if (!published) {
-    setStatus(Status::PublishFailed);
-  }
-  return published;
 }
 
 bool MQTTConfigManager::publishData(const char* key, float value, uint8_t decimals) {
@@ -213,9 +188,7 @@ void MQTTConfigManager::printStatus(Print& out) {
   out.printf("[MQTT] Client ID   : %s\n", config_.clientId);
   out.printf("[MQTT] Username    : %s\n", hasValue(config_.username) ? config_.username : "-");
   out.printf("[MQTT] Password    : %s\n", hasValue(config_.password) ? maskedPassword : "-");
-  out.printf("[MQTT] State Topic : %s\n", hasValue(config_.dataTopic) ? config_.dataTopic : "-");
-  out.printf("[MQTT] Avail Topic : %s\n",
-             hasValue(config_.availabilityTopic) ? config_.availabilityTopic : "-");
+  out.printf("[MQTT] Data Topic  : %s\n", hasValue(config_.dataTopic) ? config_.dataTopic : "-");
   out.printf("[MQTT] Info Topic  : %s\n", hasValue(config_.infoTopic) ? config_.infoTopic : "-");
   out.printf("[MQTT] WiFi        : %s\n", (WiFi.status() == WL_CONNECTED) ? "Connected" : "Not Connected");
   out.printf("[MQTT] ClientState : %d (%s)\n",
