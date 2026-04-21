@@ -23,7 +23,7 @@
   4. Tidak ada Influx token yang muncul di browser DevTools (view-source/bundles/network payloads) dan tidak ada `NEXT_PUBLIC_*` secret leakage.
 **Plans**: 2 plans
 Plans:
-- [ ] 01-01-PLAN.md — Secure env + server-only Influx query layer + `GET /api/kpi/latest` (with tests)
+- [x] 01-01-PLAN.md — Secure env + server-only Influx query layer + `GET /api/kpi/latest` (with tests)
 - [ ] 01-02-PLAN.md — `/dashboard` shell + selectors + KPI cards wired to `/api/kpi/latest`
 **UI hint**: yes
 
@@ -65,6 +65,6 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Influx Foundation + Single-Device Shell | 0/0 | Not started | - |
+| 1. Influx Foundation + Single-Device Shell | 1/2 | In Progress|  |
 | 2. Charts + Realtime SSE (Stable UX) | 0/0 | Not started | - |
 | 3. MQTT Optional + Runbook | 0/0 | Not started | - |

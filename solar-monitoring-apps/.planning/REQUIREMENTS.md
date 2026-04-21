@@ -7,8 +7,8 @@
 
 ### Data Source (Influx)
 
-- [ ] **INFLUX-01**: Server bisa query InfluxDB v2 menggunakan `@influxdata/influxdb-client` (token via env, server-side only)
-- [ ] **INFLUX-02**: Bisa ambil “latest point” untuk `device_id` tertentu (measurement `pv_monitoring`)
+- [x] **INFLUX-01**: Server bisa query InfluxDB v2 menggunakan `@influxdata/influxdb-client` (token via env, server-side only)
+- [x] **INFLUX-02**: Bisa ambil “latest point” untuk `device_id` tertentu (measurement `pv_monitoring`)
 - [ ] **INFLUX-03**: Bisa query time series untuk range (default 24h) untuk field utama (pv voltage, charging power, battery voltage, inverter power)
 
 ### Realtime (SSE)
@@ -26,8 +26,8 @@
 
 ### Configuration & Ops
 
-- [ ] **OPS-01**: Konfigurasi via `.env.local` (Influx URL/org/bucket/token, default device_id, refresh interval)
-- [ ] **OPS-02**: Tidak ada secret (token) yang terkirim ke browser bundle
+- [x] **OPS-01**: Konfigurasi via `.env.local` (Influx URL/org/bucket/token, default device_id, refresh interval)
+- [x] **OPS-02**: Tidak ada secret (token) yang terkirim ke browser bundle
 - [ ] **OPS-03**: Dokumentasi cara run dev/prod (pnpm) + environment variables
 
 ## v2 Requirements
@@ -53,8 +53,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFLUX-01 | Phase 1 | Pending |
-| INFLUX-02 | Phase 1 | Pending |
+| INFLUX-01 | Phase 1 | Complete |
+| INFLUX-02 | Phase 1 | Complete |
 | INFLUX-03 | Phase 2 | Pending |
 | SSE-01 | Phase 2 | Pending |
 | SSE-02 | Phase 2 | Pending |
@@ -63,8 +63,8 @@
 | UI-02 | Phase 2 | Pending |
 | UI-03 | Phase 1 | Pending |
 | UI-04 | Phase 2 | Pending |
-| OPS-01 | Phase 1 | Pending |
-| OPS-02 | Phase 1 | Pending |
+| OPS-01 | Phase 1 | Complete |
+| OPS-02 | Phase 1 | Complete |
 | OPS-03 | Phase 3 | Pending |
 
 **Coverage:**
