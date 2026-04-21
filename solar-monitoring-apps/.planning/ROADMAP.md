@@ -8,7 +8,7 @@
 
 - [ ] **Phase 1: Influx Foundation + Single-Device Shell** - Server-side Influx access + basic dashboard shell (device + range selection, KPI cards placeholder) + secure env setup
 - [ ] **Phase 2: Charts + Realtime SSE (Stable UX)** - Historical time-series charts + SSE stream with reconnect/backoff + stale/error handling + load-safe polling strategy
-- [ ] **Phase 3: MQTT Optional + Runbook** - Optional MQTT info panel + production/dev run docs and final ops hardening
+- [ ] **Phase 3: Runbook + Ops Hardening** - Production/dev run docs + env checklist + final ops hardening (Influx-only)
 
 ## Phase Details
 
@@ -44,19 +44,19 @@
 **External dependencies / blockers**:
 - Influx query performance memadai untuk time range yang dipakai; jika tidak, perlu aturan downsample/aggregate (konfigurasi query) agar payload dan render tetap ringan.
 
-### Phase 3: MQTT Optional + Runbook
-**Goal**: Dashboard dapat (opsional) menampilkan info/status terakhir dari MQTT, dan repo punya panduan run dev/prod + env yang jelas untuk operasi harian.
+### Phase 3: Runbook + Ops Hardening
+**Goal**: Repo punya panduan run dev/prod + env yang jelas untuk operasi harian, dan dashboard siap dipakai Influx-only secara stabil.
 **Depends on**: Phase 2
-**Requirements**: MQTT-01, OPS-03
+**Requirements**: OPS-03
 **Success Criteria** (what must be TRUE):
-  1. Jika MQTT dikonfigurasi, UI dapat menampilkan status/info terakhir dari topic `pv-monitoring/info` (read-only) dan menunjukkan jika broker tidak tersedia.
-  2. Jika MQTT tidak dikonfigurasi, dashboard tetap berfungsi penuh dengan Influx-only tanpa error yang mengganggu.
-  3. Dokumentasi menjalankan app (dev/prod) menjelaskan variabel environment yang dibutuhkan, contoh `.env.local`, dan cara verifikasi koneksi Influx/MQTT.
+  1. Dokumentasi menjalankan app (dev/prod) menjelaskan variabel environment yang dibutuhkan, contoh `.env.local`, dan cara verifikasi koneksi Influx.
+  2. Dashboard tetap berfungsi penuh Influx-only tanpa error yang mengganggu saat env belum lengkap (pesan error jelas).
+  3. Ada checklist troubleshooting umum (Influx unreachable, bucket/org salah, token invalid, empty dataset).
 **Plans**: TBD
 **UI hint**: yes
 
 **External dependencies / blockers**:
-- MQTT broker reachable + kredensial/topik sesuai (`pv-monitoring/info`) jika fitur MQTT diaktifkan.
+- Tidak ada (Influx-only).
 
 ## Progress
 

@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Web dashboard (Next.js) untuk memonitor data solar panel **realtime** dari InfluxDB (dan nantinya MQTT), fokus v1: **1 device** dengan tampilan panel + grafik historical (default 24 jam) dan stream update realtime ke browser.
+Web dashboard (Next.js) untuk memonitor data solar panel **realtime** dari **InfluxDB**, fokus v1: **1 device** dengan tampilan panel + grafik historical (default 24 jam) dan stream update realtime ke browser.
 
 ## Core Value
 
@@ -18,7 +18,7 @@ Operator bisa melihat **nilai terbaru + tren** PV/inverter secara realtime dan c
 
 - [ ] Dashboard single-device: KPI cards + charts + time range
 - [ ] Realtime update ke browser via **SSE**
-- [ ] Data source: InfluxDB (wajib), MQTT (v1: optional/secondary)
+- [ ] Data source: InfluxDB (wajib)
 - [ ] Config via environment variables (token tidak pernah dikirim ke client)
 - [ ] Layout rapi, mobile-friendly, dan performa stabil di LAN
 

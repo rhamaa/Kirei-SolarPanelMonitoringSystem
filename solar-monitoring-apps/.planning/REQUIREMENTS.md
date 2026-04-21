@@ -24,10 +24,6 @@
 - [ ] **UI-03**: User bisa memilih device (by `device_id`) dan time range (preset + custom)
 - [ ] **UI-04**: UI menampilkan state loading/error dan status “data stale” jika data tidak update
 
-### MQTT (Optional / Secondary)
-
-- [ ] **MQTT-01**: (Opsional v1) Bisa tampilkan status/info terakhir dari MQTT topic `pv-monitoring/info` (read-only)
-
 ### Configuration & Ops
 
 - [ ] **OPS-01**: Konfigurasi via `.env.local` (Influx URL/org/bucket/token, default device_id, refresh interval)
@@ -67,14 +63,13 @@
 | UI-02 | Phase 2 | Pending |
 | UI-03 | Phase 1 | Pending |
 | UI-04 | Phase 2 | Pending |
-| MQTT-01 | Phase 3 | Pending |
 | OPS-01 | Phase 1 | Pending |
 | OPS-02 | Phase 1 | Pending |
 | OPS-03 | Phase 3 | Pending |
 
 **Coverage:**
-- v1 requirements: 14 total
-- Mapped to phases: 14
+- v1 requirements: 13 total
+- Mapped to phases: 13
 - Unmapped: 0 ✓
 
 ---
