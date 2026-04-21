@@ -16,7 +16,6 @@
 
 - **Influx credentials & reachability**: `INFLUX_URL`, `INFLUX_ORG`, `INFLUX_BUCKET`, `INFLUX_TOKEN` valid and reachable from the Next.js server runtime.
 - **Data contract**: measurement `pv_monitoring`, tag `device_id`, and required fields available (or mapping confirmed).
-- **MQTT (Phase 3, optional)**: broker reachable + topic `pv-monitoring/info` available if MQTT panel is enabled.
 
 ## Decisions (locked for v1)
 
@@ -33,5 +32,6 @@
 
 ## Session Continuity
 
+**Last activity**: UI-SPEC approved — `.planning/phases/01-influx-foundation-single-device-shell/01-UI-SPEC.md`  
 **Next action**: Plan Phase 1 (`/gsd-plan-phase 1`) using the roadmap success criteria as acceptance checks.  
 **Guardrails**: avoid accepting any host/org/bucket/token parameters from client input (SSRF + secret leakage risk).
