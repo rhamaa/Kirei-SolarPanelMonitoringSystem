@@ -2,7 +2,7 @@
 
 **Granularity**: standard  
 **Scope**: `solar-monitoring-apps/` only  
-**v1 requirement coverage**: 14/14 mapped ✓
+**v1 requirement coverage**: 13/13 mapped ✓
 
 ## Phases
 
@@ -21,7 +21,10 @@
   2. User bisa memilih `device_id` (default dari env) dan time range preset (minimal: 24h) dari UI.
   3. KPI cards menampilkan “latest point” untuk `device_id` terpilih dari Influx, dan refresh menghasilkan nilai yang konsisten.
   4. Tidak ada Influx token yang muncul di browser DevTools (view-source/bundles/network payloads) dan tidak ada `NEXT_PUBLIC_*` secret leakage.
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 01-01-PLAN.md — Secure env + server-only Influx query layer + `GET /api/kpi/latest` (with tests)
+- [ ] 01-02-PLAN.md — `/dashboard` shell + selectors + KPI cards wired to `/api/kpi/latest`
 **UI hint**: yes
 
 **External dependencies / blockers**:

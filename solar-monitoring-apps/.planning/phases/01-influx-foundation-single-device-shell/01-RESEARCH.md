@@ -243,22 +243,26 @@ data
 | A2 | Best Flux pattern for “latest KPI across multiple fields” is `group(..., "_field") |> last() |> pivot(...)`. | Common Pitfalls / Phase Requirements | If schema differs (fields/tags), query must change; wrong query could return wrong KPIs. |
 | A3 | Route Handlers that use `@influxdata/influxdb-client` should force Node runtime (not Edge). | Architecture Anti-Patterns | If Edge is required later, need different approach (proxy/service). |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Influx schema confirmation**
-   - What we know: measurement is `pv_monitoring`, tag includes `device_id`. [VERIFIED: REQUIREMENTS.md]
-   - What's unclear: exact field names needed for KPI cards (MPPT + inverter fields) and whether they share timestamps.
-   - Recommendation: add a “schema probe” query (or inspect Influx UI) before finalizing KPI list.
+   - **Resolution (Phase 1)**: KPI response format will be resilient to schema variance:
+     - Define a small **preferred KPI field list** (for PV/inverter) in server code.
+     - Query “latest” data using Flux that returns the latest values available.
+     - In the response, return:
+       - `deviceId`
+       - `time` (last timestamp observed)
+       - `values: Record<string, number | string | boolean | null>` for the preferred fields (missing fields become `null`)
+       - `availableFields: string[]` (fields actually present in the last row) to aid debugging.
+   - **Why**: avoids blocking Phase 1 on perfect schema knowledge; Phase 2 can refine chart field set after schema is confirmed.
 
 2. **Device picker source**
-   - What we know: Phase 1 is single-device, but UI-03 requires device selection.
-   - What's unclear: whether we have a known set of device_ids (hardcoded list, env-provided list, or query distinct tag values).
-   - Recommendation: for Phase 1 planning, either (a) implement picker as text input + default env device, or (b) add a server endpoint to list known device_ids by querying distinct tag values (confirm feasibility/scope).
+   - **Resolution (Phase 1)**: implement device selector as **manual text input** with default pre-filled from env (e.g. `DEFAULT_DEVICE_ID`).
+   - **No distinct-tag query** in Phase 1 (avoid extra endpoints/scope). Phase 2+ can add device discovery if needed.
 
 3. **Time range “custom” definition**
-   - What we know: default 24h; Phase 1 may only use presets + placeholder chart. [VERIFIED: CONTEXT.md]
-   - What's unclear: “custom” means absolute start/stop timestamps or relative duration input.
-   - Recommendation: start with presets (e.g. 1h/6h/24h/7d) and design API to accept validated `start`/`stop` later (Phase 2 historical queries).
+   - **Resolution (Phase 1)**: only support **preset** time range (minimum `24h`, default).
+   - API accepts `rangePreset` enum (e.g. `"24h"`) validated server-side; no custom start/stop in Phase 1 (explicitly deferred to Phase 2).
 
 ## Environment Availability
 
