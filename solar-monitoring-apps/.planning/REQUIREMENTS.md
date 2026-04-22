@@ -19,9 +19,9 @@
 
 ### Dashboard UI (Single Device)
 
-- [ ] **UI-01**: Halaman utama menampilkan KPI cards (latest values) untuk MPPT & inverter
+- [x] **UI-01**: Halaman utama menampilkan KPI cards (latest values) untuk MPPT & inverter
 - [ ] **UI-02**: Halaman utama menampilkan chart time-series untuk range yang dipilih (default 24h)
-- [ ] **UI-03**: User bisa memilih device (by `device_id`) dan time range (preset + custom)
+- [x] **UI-03**: User bisa memilih device (by `device_id`) dan time range (preset + custom)
 - [ ] **UI-04**: UI menampilkan state loading/error dan status “data stale” jika data tidak update
 
 ### Configuration & Ops
@@ -59,9 +59,9 @@
 | SSE-01 | Phase 2 | Pending |
 | SSE-02 | Phase 2 | Pending |
 | SSE-03 | Phase 2 | Pending |
-| UI-01 | Phase 1 | Pending |
+| UI-01 | Phase 1 | Complete |
 | UI-02 | Phase 2 | Pending |
-| UI-03 | Phase 1 | Pending |
+| UI-03 | Phase 1 | Complete |
 | UI-04 | Phase 2 | Pending |
 | OPS-01 | Phase 1 | Complete |
 | OPS-02 | Phase 1 | Complete |

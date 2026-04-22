@@ -24,7 +24,7 @@
 **Plans**: 2 plans
 Plans:
 - [x] 01-01-PLAN.md — Secure env + server-only Influx query layer + `GET /api/kpi/latest` (with tests)
-- [ ] 01-02-PLAN.md — `/dashboard` shell + selectors + KPI cards wired to `/api/kpi/latest`
+- [x] 01-02-PLAN.md — `/dashboard` shell + selectors + KPI cards wired to `/api/kpi/latest`
 **UI hint**: yes
 
 **External dependencies / blockers**:
