@@ -1,26 +1,101 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #080c10;
+  --bg2: #0d1219;
+  --bg3: #111820;
+  --border: rgba(255, 255, 255, 0.06);
+  --muted: rgba(255, 255, 255, 0.35);
+  --text: rgba(255, 255, 255, 0.88);
+
+  /* Primary HUD accent (lime) — matches Solar Monitor mock */
+  --accent: #d4f45d;
+  --accent-dim: rgba(212, 244, 93, 0.14);
+  --accent-glow: rgba(212, 244, 93, 0.45);
+
+  --amber: #f5a623;
+  --amber-dim: rgba(245, 166, 35, 0.15);
+
+  --cyan: #00d4c8;
+  --cyan-dim: rgba(0, 212, 200, 0.12);
+  --green: #39d98a;
+  --green-dim: rgba(57, 217, 138, 0.12);
+  --red: #ff5e5e;
+
+  --background: var(--bg);
+  --foreground: var(--text);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-app-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-app-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-app-sans), ui-sans-serif, system-ui, sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(212, 244, 93, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(212, 244, 93, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes pv-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes pv-flow {
+  0% {
+    stroke-dashoffset: 100;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes pv-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pv-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 12px var(--accent-glow);
+  }
+  50% {
+    box-shadow: 0 0 24px var(--accent-glow), 0 0 48px rgba(212, 244, 93, 0.2);
+  }
+}
+
+#__next,
+body > div {
+  position: relative;
+  z-index: 1;
 }

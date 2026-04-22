@@ -6,7 +6,7 @@
 
 ## Phases
 
-- [ ] **Phase 1: Influx Foundation + Single-Device Shell** - Server-side Influx access + basic dashboard shell (device + range selection, KPI cards placeholder) + secure env setup
+- [x] **Phase 1: Influx Foundation + Single-Device Shell** - Server-side Influx access + basic dashboard shell (device + range selection, KPI cards placeholder) + secure env setup (completed 2026-04-22)
 - [ ] **Phase 2: Charts + Realtime SSE (Stable UX)** - Historical time-series charts + SSE stream with reconnect/backoff + stale/error handling + load-safe polling strategy
 - [ ] **Phase 3: Runbook + Ops Hardening** - Production/dev run docs + env checklist + final ops hardening (Influx-only)
 
@@ -65,6 +65,6 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Influx Foundation + Single-Device Shell | 1/2 | In Progress|  |
+| 1. Influx Foundation + Single-Device Shell | 2/2 | Complete   | 2026-04-22 |
 | 2. Charts + Realtime SSE (Stable UX) | 0/0 | Not started | - |
 | 3. MQTT Optional + Runbook | 0/0 | Not started | - |

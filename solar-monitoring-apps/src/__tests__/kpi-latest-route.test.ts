@@ -75,7 +75,7 @@ describe("GET /api/kpi/latest", () => {
 
     expect(res.status).toBe(200);
     const keys = Object.keys(body);
-    expect(keys).toEqual(expect.arrayContaining(["deviceId", "range", "asOf", "values"]));
+    expect(keys).toEqual(expect.arrayContaining(["deviceId", "range", "asOf", "values", "snapshot"]));
     expect(JSON.stringify(body)).not.toMatch(/token|org|bucket|url/i);
   });
 

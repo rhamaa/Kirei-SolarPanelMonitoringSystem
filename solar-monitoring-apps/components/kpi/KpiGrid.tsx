@@ -2,7 +2,16 @@ import { KpiCard } from "./KpiCard";
 
 export type KpiGridItem =
   | { key: string; label: string; state: "loading" }
-  | { key: string; label: string; state: "ready"; value: number | null; unit: string; time: string | null };
+  | {
+      key: string;
+      label: string;
+      state: "ready";
+      value: number | null;
+      unit: string;
+      time: string | null;
+      tone?: "accent" | "cyan" | "green" | "muted";
+      glow?: boolean;
+    };
 
 export function KpiGrid(props: { items: KpiGridItem[] }) {
   const { items } = props;
@@ -16,7 +25,14 @@ export function KpiGrid(props: { items: KpiGridItem[] }) {
           data={
             item.state === "loading"
               ? { state: "loading" }
-              : { state: "ready", value: item.value, unit: item.unit, time: item.time }
+              : {
+                  state: "ready",
+                  value: item.value,
+                  unit: item.unit,
+                  time: item.time,
+                  tone: item.tone,
+                  glow: item.glow,
+                }
           }
         />
       ))}

@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PV Monitor — pv-monitoring-01</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  :root {
+    --bg: #080c10;
+    --bg2: #0d1219;
+    --bg3: #111820;
+    --border: rgba(255,255,255,0.06);
+    --amber: #f5a623;
+    --amber-dim: rgba(245,166,35,0.15);
+    --amber-glow: rgba(245,166,35,0.4);
+    --cyan: #00d4c8;
+    --cyan-dim: rgba(0,212,200,0.12);
+    --green: #39d98a;
+    --green-dim: rgba(57,217,138,0.12);
+    --red: #ff5e5e;
+    --muted: rgba(255,255,255,0.35);
+    --text: rgba(255,255,255,0.88);
+    --mono: 'Space Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(245,166,35,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(245,166,35,0.02) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  #root { position: relative; z-index: 1; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  @keyframes flow {
+    0% { stroke-dashoffset: 100; }
+    100% { stroke-dashoffset: 0; }
+  }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes scanline {
+    0% { top: -10%; }
+    100% { top: 110%; }
+  }
+  @keyframes glow {
+    0%,100% { box-shadow: 0 0 12px var(--amber-glow); }
+    50% { box-shadow: 0 0 24px var(--amber-glow), 0 0 48px rgba(245,166,35,0.2); }
+  }
+
+  .tweaks-panel {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    width: 260px;
+    z-index: 1000;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    display: none;
+    animation: fadeIn 0.2s ease;
+  }
+  .tweaks-panel.visible { display: block; }
+  .tweaks-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    color: var(--amber);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .tweak-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+    gap: 12px;
+  }
+  .tweak-label {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: var(--sans);
+  }
+  .tweak-row select, .tweak-row input[type=range] {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-family: var(--mono);
+    cursor: pointer;
+    flex: 1;
+  }
+  .tweak-row input[type=checkbox] { cursor: pointer; accent-color: var(--amber); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "accentColor": "lime",
+  "updateInterval": 500,
+  "showFlowAnimation": true,
+  "chartWindow": 50
+}/*EDITMODE-END*/;
+
+// Utility
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const jitter = (v, pct = 0.02) => v * (1 + (Math.random() - 0.5) * pct);
+const fmt = (v, d = 1) => Number(v).toFixed(d);
+
+// Sparkline chart with SVG
+function Sparkline({ data, color, height = 40, fill = true }) {
+  if (!data || data.length < 2) return null;
+  const w = 200, h = height;
+  const min = Math.min(...data), max = Math.max(...data);
+  const range = max - min || 1;
+  const pts = data.map((v, i) => [
+    (i / (data.length - 1)) * w,
+    h - ((v - min) / range) * (h - 4) - 2
+  ]);
+  const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const fillPath = `${path} L${w},${h} L0,${h} Z`;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} style={{width:'100%',height}} preserveAspectRatio="none">
+      {fill && <path d={fillPath} fill={color} fillOpacity="0.12"/>}
+      <path d={path} stroke={color} strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+      <circle cx={pts[pts.length-1][0]} cy={pts[pts.length-1][1]} r="2.5" fill={color}/>
+    </svg>
+  );
+}
+
+// Arc gauge
+function ArcGauge({ value, max, color, size = 80 }) {
+  const r = (size / 2) - 8;
+  const cx = size / 2, cy = size / 2;
+  const startAngle = -210;
+  const endAngle = 30;
+  const totalArc = endAngle - startAngle;
+  const pct = clamp(value / max, 0, 1);
+  const toRad = d => (d * Math.PI) / 180;
+  const arc = (a) => [cx + r * Math.cos(toRad(a)), cy + r * Math.sin(toRad(a))];
+  const [sx, sy] = arc(startAngle);
+  const [ex, ey] = arc(endAngle);
+  const [vx, vy] = arc(startAngle + totalArc * pct);
+  const largeArc = totalArc > 180 ? 1 : 0;
+  const vLargeArc = totalArc * pct > 180 ? 1 : 0;
+  return (
+    <svg width={size} height={size} style={{overflow:'visible'}}>
+      <path d={`M${sx},${sy} A${r},${r} 0 ${largeArc},1 ${ex},${ey}`}
+        stroke="rgba(255,255,255,0.07)" strokeWidth="5" fill="none" strokeLinecap="round"/>
+      {pct > 0.01 && <path d={`M${sx},${sy} A${r},${r} 0 ${vLargeArc},1 ${vx},${vy}`}
+        stroke={color} strokeWidth="5" fill="none" strokeLinecap="round"
+        style={{filter:`drop-shadow(0 0 4px ${color})`}}/>}
+    </svg>
+  );
+}
+
+// Power flow node
+function FlowNode({ label, icon, active, color, x, y, value, unit }) {
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <circle r="28" fill={active ? color : 'rgba(255,255,255,0.04)'}
+        fillOpacity={active ? '0.15' : '1'}
+        stroke={active ? color : 'rgba(255,255,255,0.1)'} strokeWidth="1.5"
+        style={active ? {filter:`drop-shadow(0 0 8px ${color})`} : {}}/>
+      <text textAnchor="middle" dominantBaseline="middle" fontSize="18" fill={active ? color : 'rgba(255,255,255,0.3)'}>{icon}</text>
+      <text textAnchor="middle" y="40" fontSize="9" fill="rgba(255,255,255,0.5)" fontFamily="var(--mono)" letterSpacing="1">{label}</text>
+      {value != null && <text textAnchor="middle" y="53" fontSize="10" fill={active ? color : 'rgba(255,255,255,0.25)'} fontFamily="var(--mono)" fontWeight="700">{fmt(value)}
+        <tspan fontSize="8" opacity="0.7"> {unit}</tspan>
+      </text>}
+    </g>
+  );
+}
+
+// Animated flow path
+function FlowPath({ x1,y1,x2,y2, active, color, id }) {
+  const dx = x2-x1, dy = y2-y1;
+  const len = Math.sqrt(dx*dx+dy*dy);
+  return (
+    <g>
+      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(255,255,255,0.06)" strokeWidth="1.5"/>
+      {active && (
+        <line x1={x1} y1={y1} x2={x2} y2={y2}
+          stroke={color} strokeWidth="2"
+          strokeDasharray="8 12"
+          style={{animation:`flow 1.2s linear infinite`}}
+          strokeDashoffset="0"
+        />
+      )}
+    </g>
+  );
+}
+
+// Stat card
+function StatCard({ label, value, unit, sub, color, history, icon, glow }) {
+  return (
+    <div style={{
+      background: 'var(--bg2)',
+      border: `1px solid ${glow ? color : 'var(--border)'}`,
+      borderRadius: 12,
+      padding: '16px 18px',
+      position: 'relative',
+      overflow: 'hidden',
+      animation: glow ? 'glow 3s ease infinite' : 'none',
+      boxShadow: glow ? `0 0 20px ${color}33` : 'none',
+      transition: 'border-color 0.3s',
+    }}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+        <span style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--mono)',letterSpacing:'0.1em',textTransform:'uppercase'}}>{label}</span>
+        {icon && <span style={{fontSize:14,opacity:0.6}}>{icon}</span>}
+      </div>
+      <div style={{display:'flex',alignItems:'baseline',gap:6,marginBottom:4}}>
+        <span style={{fontFamily:'var(--mono)',fontSize:26,fontWeight:700,color: color || 'var(--text)',lineHeight:1}}>{value}</span>
+        <span style={{fontSize:12,color:'var(--muted)',fontFamily:'var(--mono)'}}>{unit}</span>
+      </div>
+      {sub && <div style={{fontSize:11,color:'var(--muted)',marginBottom:6}}>{sub}</div>}
+      {history && history.length > 2 && <Sparkline data={history} color={color || '#fff'} height={36}/>}
+    </div>
+  );
+}
+
+// Battery bar
+function BatteryBar({ voltage, min=44, max=58.4 }) {
+  const pct = clamp((voltage - min)/(max-min),0,1);
+  const color = pct > 0.6 ? 'var(--green)' : pct > 0.3 ? 'var(--amber)' : 'var(--red)';
+  const segments = 10;
+  return (
+    <div>
+      <div style={{display:'flex',gap:3,marginBottom:6}}>
+        {Array.from({length:segments}).map((_,i)=>{
+          const filled = (i / segments) < pct;
+          return <div key={i} style={{
+            flex:1, height:20, borderRadius:3,
+            background: filled ? color : 'rgba(255,255,255,0.05)',
+            boxShadow: filled ? `0 0 6px ${color}88` : 'none',
+            transition: 'all 0.5s ease'
+          }}/>;
+        })}
+        <div style={{width:6,height:10,background:'rgba(255,255,255,0.15)',borderRadius:'0 2px 2px 0',alignSelf:'center',marginLeft:2}}/>
+      </div>
+      <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'var(--muted)',fontFamily:'var(--mono)'}}>
+        <span>{fmt(min)}V</span>
+        <span style={{color}}>{fmt(pct*100,0)}%</span>
+        <span>{fmt(max)}V</span>
+      </div>
+    </div>
+  );
+}
+
+// Power factor gauge
+function PFGauge({ pf }) {
+  const angle = (pf - 0) * 180;
+  const r = 30, cx = 40, cy = 40;
+  const toRad = d => d * Math.PI / 180;
+  const clr = pf > 0.9 ? 'var(--green)' : pf > 0.75 ? 'var(--amber)' : 'var(--red)';
+  return (
+    <svg width="80" height="50">
+      <path d={`M10,40 A30,30 0 0,1 70,40`} stroke="rgba(255,255,255,0.07)" strokeWidth="4" fill="none" strokeLinecap="round"/>
+      <path d={`M10,40 A30,30 0 0,1 ${cx + r * Math.cos(toRad(180 - angle * 0.99))},${cy - r * Math.sin(toRad(180 - angle * 0.99))}`}
+        stroke={clr} strokeWidth="4" fill="none" strokeLinecap="round"
+        style={{filter:`drop-shadow(0 0 4px ${clr})`}}/>
+      <line x1={cx} y1={cy}
+        x2={cx + 22*Math.cos(toRad(180 - angle * 0.99))}
+        y2={cy - 22*Math.sin(toRad(180 - angle * 0.99))}
+        stroke={clr} strokeWidth="2" strokeLinecap="round"/>
+      <circle cx={cx} cy={cy} r="3" fill={clr}/>
+    </svg>
+  );
+}
+
+// Chart — bar/area
+function AreaChart({ data, labels, color, height = 80, yLabel = '' }) {
+  if (!data || data.length === 0) return null;
+  const w = 600, h = height;
+  const min = 0, max = Math.max(...data) * 1.15 || 1;
+  const pts = data.map((v, i) => [
+    (i / (data.length - 1)) * w,
+    h - ((v - min) / (max - min)) * (h - 8) - 4
+  ]);
+  const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const fillPath = `${path} L${w},${h} L0,${h} Z`;
+  const step = Math.ceil(data.length / 8);
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} style={{width:'100%',height}} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id={`grad-${color.replace('#','')}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3"/>
+          <stop offset="100%" stopColor={color} stopOpacity="0.02"/>
+        </linearGradient>
+      </defs>
+      <path d={fillPath} fill={`url(#grad-${color.replace('#','')})`}/>
+      <path d={path} stroke={color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"
+        style={{filter:`drop-shadow(0 0 4px ${color}88)`}}/>
+      {pts.map((p,i) => i % step === 0 && (
+        <g key={i}>
+          <line x1={p[0]} y1={h-1} x2={p[0]} y2={h-4} stroke="rgba(255,255,255,0.15)" strokeWidth="1"/>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+// Wifi signal
+function WifiSignal({ rssi }) {
+  const strength = rssi > -60 ? 4 : rssi > -70 ? 3 : rssi > -80 ? 2 : 1;
+  const color = strength >= 3 ? 'var(--green)' : strength === 2 ? 'var(--amber)' : 'var(--red)';
+  return (
+    <div style={{display:'flex',alignItems:'flex-end',gap:2,height:16}}>
+      {[1,2,3,4].map(b=>(
+        <div key={b} style={{
+          width:4,
+          height: 4 + b*3,
+          borderRadius:2,
+          background: b <= strength ? color : 'rgba(255,255,255,0.12)',
+          boxShadow: b <= strength ? `0 0 4px ${color}` : 'none',
+          transition:'all 0.5s'
+        }}/>
+      ))}
+      <span style={{fontSize:10,color,fontFamily:'var(--mono)',marginLeft:4}}>{rssi} dBm</span>
+    </div>
+  );
+}
+
+// Status badge
+function Badge({ text, ok }) {
+  const color = ok ? 'var(--green)' : 'var(--red)';
+  return (
+    <span style={{
+      display:'inline-flex',alignItems:'center',gap:5,
+      background: ok ? 'var(--green-dim)' : 'rgba(255,94,94,0.1)',
+      border: `1px solid ${ok ? 'rgba(57,217,138,0.3)' : 'rgba(255,94,94,0.3)'}`,
+      borderRadius: 20, padding:'3px 10px',
+      fontSize:10, fontFamily:'var(--mono)', color,
+      letterSpacing:'0.05em'
+    }}>
+      <span style={{width:5,height:5,borderRadius:'50%',background:color,animation:'pulse 2s infinite'}}/>
+      {text}
+    </span>
+  );
+}
+
+// ===================== MAIN APP =====================
+function App() {
+  const [tweaks, setTweaks] = useState(TWEAK_DEFAULTS);
+  const [tweaksVisible, setTweaksVisible] = useState(false);
+  const [tab, setTab] = useState('dashboard');
+
+  // Live data state
+  const base = {
+    mppt_pv_voltage: 71.8,
+    mppt_charging_power: 104.8,
+    mppt_charging_current: 0.18,
+    mppt_battery_voltage: 55.1,
+    mppt_load_current: 0,
+    mppt_load_power: 0,
+    inverter_ac_voltage: 221.5,
+    inverter_ac_current: 0.223,
+    inverter_ac_power: 45.8,
+    inverter_ac_energy: 2.989,
+    inverter_ac_frequency: 49.7,
+    inverter_ac_power_factor: 0.93,
+    inverter_ac_apparent_power: 49.2,
+    wifi_rssi: -57,
+  };
+
+  const [data, setData] = useState(base);
+
+  // History arrays
+  const histLen = tweaks.chartWindow;
+  const [hist, setHist] = useState(() => ({
+    pv_voltage: Array(histLen).fill(71.8),
+    pv_power: Array(histLen).fill(104.8),
+    battery: Array(histLen).fill(55.1),
+    ac_power: Array(histLen).fill(45.8),
+    ac_freq: Array(histLen).fill(49.7),
+  }));
+
+  // Daily energy history (fake 24h)
+  const [dailyEnergy] = useState(() =>
+    Array.from({length:24},(_,i)=>{
+      const h = i;
+      if(h<6||h>19)return 0;
+      const peak = Math.sin((h-6)*Math.PI/13)*4.2;
+      return Math.max(0,peak + (Math.random()-0.5)*0.4);
+    })
+  );
+
+  const [tick, setTick] = useState(0);
+
+  useEffect(()=>{
+    const id = setInterval(()=>{
+      setData(d => {
+        const pv_voltage = clamp(jitter(d.mppt_pv_voltage, 0.015), 65, 80);
+        const pv_power = clamp(jitter(d.mppt_charging_power, 0.03), 80, 140);
+        const pv_current = clamp(jitter(d.mppt_charging_current, 0.05), 0.1, 0.3);
+        const bat_v = clamp(d.mppt_battery_voltage + (Math.random()-0.48)*0.02, 52, 58);
+        const ac_power = clamp(jitter(d.inverter_ac_power, 0.04), 30, 70);
+        const ac_v = clamp(jitter(d.inverter_ac_voltage, 0.005), 215, 230);
+        const freq = clamp(jitter(d.inverter_ac_frequency, 0.003), 49.0, 51.0);
+        const pf = clamp(jitter(d.inverter_ac_power_factor, 0.01), 0.88, 0.99);
+        const apparent = ac_power / pf;
+        const ac_current = ac_power / ac_v;
+        const rssi = clamp(d.wifi_rssi + Math.round((Math.random()-0.5)*2), -75, -45);
+        return {
+          ...d,
+          mppt_pv_voltage: pv_voltage,
+          mppt_charging_power: pv_power,
+          mppt_charging_current: pv_current,
+          mppt_battery_voltage: bat_v,
+          inverter_ac_power: ac_power,
+          inverter_ac_voltage: ac_v,
+          inverter_ac_current: ac_current,
+          inverter_ac_frequency: freq,
+          inverter_ac_power_factor: pf,
+          inverter_ac_apparent_power: apparent,
+          inverter_ac_energy: parseFloat((d.inverter_ac_energy + ac_power/3600000*2).toFixed(5)),
+          wifi_rssi: rssi,
+        };
+      });
+      setHist(h => {
+        const next = {...h};
+        setData(d => {
+          next.pv_voltage = [...h.pv_voltage.slice(-(histLen-1)), d.mppt_pv_voltage];
+          next.pv_power = [...h.pv_power.slice(-(histLen-1)), d.mppt_charging_power];
+          next.battery = [...h.battery.slice(-(histLen-1)), d.mppt_battery_voltage];
+          next.ac_power = [...h.ac_power.slice(-(histLen-1)), d.inverter_ac_power];
+          next.ac_freq = [...h.ac_freq.slice(-(histLen-1)), d.inverter_ac_frequency];
+          return d;
+        });
+        return next;
+      });
+      setTick(t=>t+1);
+    }, tweaks.updateInterval);
+    return ()=>clearInterval(id);
+  }, [tweaks.updateInterval, histLen]);
+
+  // Tweaks messaging
+  useEffect(()=>{
+    const handler = e => {
+      if(e.data?.type === '__activate_edit_mode') setTweaksVisible(true);
+      if(e.data?.type === '__deactivate_edit_mode') setTweaksVisible(false);
+    };
+    window.addEventListener('message', handler);
+    window.parent.postMessage({type:'__edit_mode_available'},'*');
+    return ()=>window.removeEventListener('message', handler);
+  },[]);
+
+  const updateTweak = (k,v) => {
+    const next = {...tweaks,[k]:v};
+    setTweaks(next);
+    window.parent.postMessage({type:'__edit_mode_set_keys',edits:next},'*');
+  };
+
+  const accentColors = {
+    amber: {main:'#f5a623', dim:'rgba(245,166,35,0.15)'},
+    cyan: {main:'#00d4c8', dim:'rgba(0,212,200,0.12)'},
+    lime: {main:'#a8e63d', dim:'rgba(168,230,61,0.12)'},
+  };
+  const accent = accentColors[tweaks.accentColor] || accentColors.amber;
+
+  const efficiency = data.inverter_ac_power / data.mppt_charging_power * 100;
+  const now = new Date();
+
+  const tabs = ['dashboard', 'analytics', 'inverter', 'system'];
+
+  return (
+    <div style={{minHeight:'100vh',padding:'0 0 40px'}}>
+      {/* Header */}
+      <div style={{
+        background:'rgba(8,12,16,0.95)',
+        borderBottom:'1px solid var(--border)',
+        padding:'0 28px',
+        display:'flex',
+        alignItems:'center',
+        justifyContent:'space-between',
+        height:58,
+        position:'sticky',top:0,zIndex:100,
+        backdropFilter:'blur(12px)',
+      }}>
+        <div style={{display:'flex',alignItems:'center',gap:16}}>
+          <div style={{
+            width:32,height:32,borderRadius:8,
+            background:`linear-gradient(135deg, ${accent.main}33, ${accent.main}11)`,
+            border:`1px solid ${accent.main}44`,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            fontSize:16
+          }}>☀️</div>
+          <div>
+            <div style={{fontFamily:'var(--mono)',fontSize:13,fontWeight:700,letterSpacing:'0.08em',color:accent.main}}>PV MONITOR</div>
+            <div style={{fontSize:10,color:'var(--muted)',fontFamily:'var(--mono)'}}>pv-monitoring-01</div>
+          </div>
+        </div>
+
+        <div style={{display:'flex',gap:4}}>
+          {tabs.map(t=>(
+            <button key={t} onClick={()=>setTab(t)} style={{
+              background: tab===t ? `${accent.main}18` : 'transparent',
+              border: tab===t ? `1px solid ${accent.main}44` : '1px solid transparent',
+              color: tab===t ? accent.main : 'var(--muted)',
+              borderRadius:8,padding:'5px 14px',cursor:'pointer',
+              fontFamily:'var(--mono)',fontSize:11,letterSpacing:'0.08em',
+              textTransform:'uppercase',transition:'all 0.2s'
+            }}>{t}</button>
+          ))}
+        </div>
+
+        <div style={{display:'flex',alignItems:'center',gap:16}}>
+          <WifiSignal rssi={data.wifi_rssi}/>
+          <Badge text="MPPT Charging" ok={true}/>
+          <div style={{fontSize:10,color:'var(--muted)',fontFamily:'var(--mono)'}}>
+            {now.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+          </div>
+        </div>
+      </div>
+
+      {/* DASHBOARD TAB */}
+      {tab === 'dashboard' && (
+        <div style={{padding:'24px 28px',animation:'fadeIn 0.3s ease'}}>
+
+          {/* Power Flow Diagram */}
+          <div style={{
+            background:'var(--bg2)',border:'1px solid var(--border)',
+            borderRadius:16,padding:'24px 28px',marginBottom:24,
+            position:'relative',overflow:'hidden'
+          }}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+              <div style={{fontFamily:'var(--mono)',fontSize:12,letterSpacing:'0.12em',color:accent.main,textTransform:'uppercase'}}>Energy Flow</div>
+              <div style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--mono)'}}>Real-time</div>
+            </div>
+            <div style={{display:'flex',justifyContent:'center'}}>
+              <svg viewBox="0 0 520 130" style={{width:'100%',maxWidth:520,height:130}}>
+                {/* Flow lines */}
+                <FlowPath x1={95} y1={55} x2={195} y2={55} active={data.mppt_charging_power>0} color={accent.main}/>
+                <FlowPath x1={315} y1={55} x2={415} y2={55} active={data.inverter_ac_power>0} color="var(--cyan)"/>
+                <FlowPath x1={255} y1={83} x2={255} y2={113} active={false} color="var(--green)"/>
+
+                {/* Nodes */}
+                <FlowNode label="SOLAR" icon="☀" active={true} color={accent.main} x={55} y={55}
+                  value={data.mppt_pv_voltage} unit="V"/>
+                <FlowNode label="MPPT" icon="⚡" active={true} color={accent.main} x={255} y={55}
+                  value={data.mppt_charging_power} unit="W"/>
+                <FlowNode label="AC OUT" icon="🔌" active={data.inverter_ac_power>0} color="var(--cyan)" x={455} y={55}
+                  value={data.inverter_ac_power} unit="W"/>
+                <FlowNode label="BATTERY" icon="🔋" active={false} color="var(--green)" x={255} y={113}
+                  value={data.mppt_battery_voltage} unit="V"/>
+              </svg>
+            </div>
+          </div>
+
+          {/* Top metrics grid */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:14}}>
+            <StatCard label="PV Voltage" value={fmt(data.mppt_pv_voltage)} unit="V"
+              color={accent.main} history={hist.pv_voltage} icon="☀️" glow={true}/>
+            <StatCard label="Charging Power" value={fmt(data.mppt_charging_power)} unit="W"
+              color={accent.main} history={hist.pv_power}/>
+            <StatCard label="Battery Voltage" value={fmt(data.mppt_battery_voltage)} unit="V"
+              color="var(--green)" history={hist.battery}/>
+            <StatCard label="AC Output" value={fmt(data.inverter_ac_power)} unit="W"
+              color="var(--cyan)" history={hist.ac_power}/>
+          </div>
+
+          {/* Bottom section */}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:14}}>
+            {/* Battery detail */}
+            <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
+              <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:14}}>Battery Status</div>
+              <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:16}}>
+                <ArcGauge value={data.mppt_battery_voltage - 44} max={14.4} color="var(--green)" size={80}/>
+                <div>
+                  <div style={{fontFamily:'var(--mono)',fontSize:28,fontWeight:700,color:'var(--green)'}}>{fmt(data.mppt_battery_voltage)}<span style={{fontSize:13,opacity:0.6}}> V</span></div>
+                  <div style={{fontSize:11,color:'var(--muted)'}}>Charging: {fmt(data.mppt_charging_current*1000,0)} mA</div>
+                </div>
+              </div>
+              <BatteryBar voltage={data.mppt_battery_voltage}/>
+            </div>
+
+            {/* Inverter detail */}
+            <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
+              <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:14}}>Inverter AC</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                {[
+                  {l:'Voltage',v:fmt(data.inverter_ac_voltage),u:'V',c:'var(--cyan)'},
+                  {l:'Current',v:fmt(data.inverter_ac_current,3),u:'A',c:'var(--cyan)'},
+                  {l:'Frequency',v:fmt(data.inverter_ac_frequency,1),u:'Hz',c:'var(--text)'},
+                  {l:'Energy',v:fmt(data.inverter_ac_energy,3),u:'kWh',c:'var(--amber)'},
+                ].map(({l,v,u,c})=>(
+                  <div key={l} style={{background:'var(--bg3)',borderRadius:8,padding:'10px 12px'}}>
+                    <div style={{fontSize:10,color:'var(--muted)',fontFamily:'var(--mono)',marginBottom:4}}>{l}</div>
+                    <div style={{fontFamily:'var(--mono)',fontSize:16,fontWeight:700,color:c}}>{v}<span style={{fontSize:10,opacity:0.6}}> {u}</span></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Power factor + efficiency */}
+            <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
+              <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:14}}>Quality</div>
+              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:14,paddingBottom:14,borderBottom:'1px solid var(--border)'}}>
+                <PFGauge pf={data.inverter_ac_power_factor}/>
+                <div>
+                  <div style={{fontSize:10,color:'var(--muted)',fontFamily:'var(--mono)',marginBottom:4}}>Power Factor</div>
+                  <div style={{fontFamily:'var(--mono)',fontSize:22,fontWeight:700,color:'var(--green)'}}>{fmt(data.inverter_ac_power_factor,3)}</div>
+                  <div style={{fontSize:10,color:'var(--muted)'}}>Apparent: {fmt(data.inverter_ac_apparent_power,1)} VA</div>
+                </div>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div>
+                  <div style={{fontSize:10,color:'var(--muted)',fontFamily:'var(--mono)',marginBottom:4}}>System Efficiency</div>
+                  <div style={{fontFamily:'var(--mono)',fontSize:22,fontWeight:700,color:efficiency>40?'var(--green)':'var(--amber)'}}>{fmt(efficiency,1)}<span style={{fontSize:10,opacity:0.6}}>%</span></div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontSize:10,color:'var(--muted)',fontFamily:'var(--mono)',marginBottom:4}}>Load Power</div>
+                  <div style={{fontFamily:'var(--mono)',fontSize:22,color:'var(--muted)'}}>0 <span style={{fontSize:10}}>W</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ANALYTICS TAB */}
+      {tab === 'analytics' && (
+        <div style={{padding:'24px 28px',animation:'fadeIn 0.3s ease'}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+            {/* PV Power history */}
+            {[
+              {title:'PV Charging Power', data:hist.pv_power, color:accent.main, unit:'W', stat:fmt(data.mppt_charging_power)+' W', label:'Current Output'},
+              {title:'AC Output Power', data:hist.ac_power, color:'var(--cyan)', unit:'W', stat:fmt(data.inverter_ac_power)+' W', label:'Current Load'},
+              {title:'Battery Voltage Trend', data:hist.battery, color:'var(--green)', unit:'V', stat:fmt(data.mppt_battery_voltage)+' V', label:'Current SOC'},
+              {title:'Grid Frequency', data:hist.ac_freq, color:'rgba(200,160,255,1)', unit:'Hz', stat:fmt(data.inverter_ac_frequency,2)+' Hz', label:'Nominal 50Hz'},
+            ].map(({title,data:d,color,unit,stat,label})=>(
+              <div key={title} style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
+                  <div>
+                    <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:4}}>{title}</div>
+                    <div style={{fontFamily:'var(--mono)',fontSize:22,fontWeight:700,color}}>{stat}</div>
+                    <div style={{fontSize:10,color:'var(--muted)'}}>{label}</div>
+                  </div>
+                  <span style={{fontSize:10,color,background:`${color}15`,border:`1px solid ${color}30`,borderRadius:6,padding:'3px 8px',fontFamily:'var(--mono)'}}>{unit}</span>
+                </div>
+                <AreaChart data={d} color={color} height={90}/>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:9,color:'var(--muted)',fontFamily:'var(--mono)',marginTop:6}}>
+                  <span>−{tweaks.chartWindow * (tweaks.updateInterval/1000)}s</span>
+                  <span>now</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Daily energy production */}
+          <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 24px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+              <div>
+                <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:4}}>Daily Energy Production</div>
+                <div style={{fontFamily:'var(--mono)',fontSize:22,fontWeight:700,color:accent.main}}>{fmt(dailyEnergy.reduce((a,b)=>a+b,0),2)} kWh</div>
+                <div style={{fontSize:11,color:'var(--muted)'}}>Today's estimated yield</div>
+              </div>
+              <div style={{textAlign:'right'}}>
+                <div style={{fontSize:10,color:'var(--muted)',fontFamily:'var(--mono)',marginBottom:4}}>Peak Hour</div>
+                <div style={{fontFamily:'var(--mono)',fontSize:16,fontWeight:700,color:accent.main}}>
+                  {dailyEnergy.indexOf(Math.max(...dailyEnergy))}:00
+                </div>
+                <div style={{fontSize:10,color:'var(--muted)'}}>Peak: {fmt(Math.max(...dailyEnergy),2)} kWh/h</div>
+              </div>
+            </div>
+            <div style={{display:'flex',alignItems:'flex-end',gap:4,height:80}}>
+              {dailyEnergy.map((v,i)=>{
+                const maxV = Math.max(...dailyEnergy) || 1;
+                const h = (v/maxV)*72;
+                const isNow = i === new Date().getHours();
+                const color = isNow ? accent.main : v>0 ? `${accent.main}55` : 'rgba(255,255,255,0.05)';
+                return (
+                  <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
+                    <div style={{
+                      width:'100%',height:h+4,borderRadius:'3px 3px 0 0',
+                      background:color,
+                      boxShadow: isNow ? `0 0 8px ${accent.main}88` : 'none',
+                      transition:'height 0.5s',
+                      minHeight:4
+                    }}/>
+                    {i%4===0 && <div style={{fontSize:8,color:'var(--muted)',fontFamily:'var(--mono)'}}>{i}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INVERTER TAB */}
+      {tab === 'inverter' && (
+        <div style={{padding:'24px 28px',animation:'fadeIn 0.3s ease'}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+            <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'24px'}}>
+              <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:20}}>AC Output Parameters</div>
+              {[
+                {label:'AC Voltage',value:fmt(data.inverter_ac_voltage,1),unit:'V',pct:data.inverter_ac_voltage/240,color:'var(--cyan)'},
+                {label:'AC Current',value:fmt(data.inverter_ac_current,3),unit:'A',pct:data.inverter_ac_current/10,color:'var(--cyan)'},
+                {label:'Active Power',value:fmt(data.inverter_ac_power,1),unit:'W',pct:data.inverter_ac_power/500,color:accent.main},
+                {label:'Apparent Power',value:fmt(data.inverter_ac_apparent_power,1),unit:'VA',pct:data.inverter_ac_apparent_power/500,color:accent.main},
+                {label:'Frequency',value:fmt(data.inverter_ac_frequency,2),unit:'Hz',pct:(data.inverter_ac_frequency-48)/4,color:'rgba(200,160,255,1)'},
+                {label:'Power Factor',value:fmt(data.inverter_ac_power_factor,3),unit:'',pct:data.inverter_ac_power_factor,color:'var(--green)'},
+              ].map(({label,value,unit,pct,color})=>(
+                <div key={label} style={{marginBottom:16}}>
+                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+                    <span style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--mono)'}}>{label}</span>
+                    <span style={{fontFamily:'var(--mono)',fontSize:13,fontWeight:700,color}}>{value}<span style={{fontSize:10,opacity:0.6}}> {unit}</span></span>
+                  </div>
+                  <div style={{height:4,background:'rgba(255,255,255,0.05)',borderRadius:4}}>
+                    <div style={{height:'100%',width:`${clamp(pct,0,1)*100}%`,background:color,borderRadius:4,transition:'width 0.5s',boxShadow:`0 0 6px ${color}66`}}/>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div>
+              <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'24px',marginBottom:16}}>
+                <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:20}}>MPPT Controller</div>
+                {[
+                  {label:'PV Voltage',value:fmt(data.mppt_pv_voltage,1),unit:'V',color:accent.main},
+                  {label:'Charging Power',value:fmt(data.mppt_charging_power,1),unit:'W',color:accent.main},
+                  {label:'Charging Current',value:fmt(data.mppt_charging_current*1000,0),unit:'mA',color:accent.main},
+                  {label:'Battery Voltage',value:fmt(data.mppt_battery_voltage,2),unit:'V',color:'var(--green)'},
+                  {label:'Load Current',value:'0',unit:'A',color:'var(--muted)'},
+                  {label:'Load Power',value:'0',unit:'W',color:'var(--muted)'},
+                ].map(({label,value,unit,color})=>(
+                  <div key={label} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border)'}}>
+                    <span style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--mono)'}}>{label}</span>
+                    <span style={{fontFamily:'var(--mono)',fontSize:14,fontWeight:700,color}}>{value}<span style={{fontSize:10,opacity:0.6}}> {unit}</span></span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'24px'}}>
+                <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:14}}>Total Energy</div>
+                <div style={{fontFamily:'var(--mono)',fontSize:40,fontWeight:700,color:accent.main}}>{fmt(data.inverter_ac_energy,3)}</div>
+                <div style={{fontSize:12,color:'var(--muted)',marginTop:4}}>kWh accumulated</div>
+                <div style={{marginTop:16,display:'flex',gap:10}}>
+                  <div style={{flex:1,background:'var(--bg3)',borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
+                    <div style={{fontSize:9,color:'var(--muted)',fontFamily:'var(--mono)',marginBottom:4}}>TODAY EST.</div>
+                    <div style={{fontFamily:'var(--mono)',fontSize:16,color:accent.main}}>3.2 kWh</div>
+                  </div>
+                  <div style={{flex:1,background:'var(--bg3)',borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
+                    <div style={{fontSize:9,color:'var(--muted)',fontFamily:'var(--mono)',marginBottom:4}}>THIS MONTH</div>
+                    <div style={{fontFamily:'var(--mono)',fontSize:16,color:'var(--green)'}}>48.7 kWh</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SYSTEM TAB */}
+      {tab === 'system' && (
+        <div style={{padding:'24px 28px',animation:'fadeIn 0.3s ease'}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+            <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'24px'}}>
+              <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:20}}>Device Info</div>
+              {[
+                {k:'Device ID', v:'pv-monitoring-01'},
+                {k:'MPPT Status', v:'Valid ✓', c:'var(--green)'},
+                {k:'Inverter Status', v:'Valid ✓', c:'var(--green)'},
+                {k:'Charging Mode', v:'MPPT Charging'},
+                {k:'Fault Code', v:'0x0001', c:'var(--amber)'},
+                {k:'WiFi RSSI', v:`${data.wifi_rssi} dBm`},
+                {k:'MPPT Uptime', v:'16751 s'},
+                {k:'Inverter Uptime', v:'16751 s'},
+              ].map(({k,v,c})=>(
+                <div key={k} style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:'1px solid var(--border)'}}>
+                  <span style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--mono)'}}>{k}</span>
+                  <span style={{fontFamily:'var(--mono)',fontSize:12,color:c||'var(--text)'}}>{v}</span>
+                </div>
+              ))}
+            </div>
+
+            <div>
+              <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'24px',marginBottom:16}}>
+                <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:16}}>Connectivity</div>
+                <div style={{display:'flex',alignItems:'center',gap:20,padding:'16px',background:'var(--bg3)',borderRadius:10}}>
+                  <div style={{fontSize:32}}>📡</div>
+                  <div>
+                    <div style={{fontFamily:'var(--mono)',fontSize:14,fontWeight:700,marginBottom:4}}>WiFi Connected</div>
+                    <WifiSignal rssi={data.wifi_rssi}/>
+                    <div style={{fontSize:10,color:'var(--muted)',marginTop:4}}>Signal quality: {data.wifi_rssi > -60 ? 'Good' : data.wifi_rssi > -70 ? 'Fair' : 'Poor'}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'24px'}}>
+                <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:16}}>Alerts</div>
+                <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',background:'rgba(245,166,35,0.08)',border:'1px solid rgba(245,166,35,0.2)',borderRadius:8,marginBottom:10}}>
+                  <span style={{fontSize:16}}>⚠️</span>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:600,color:'var(--amber)'}}>Fault Code 0x0001</div>
+                    <div style={{fontSize:10,color:'var(--muted)'}}>Non-critical: check documentation</div>
+                  </div>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',background:'var(--green-dim)',border:'1px solid rgba(57,217,138,0.2)',borderRadius:8}}>
+                  <span style={{fontSize:16}}>✅</span>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:600,color:'var(--green)'}}>All Systems Nominal</div>
+                    <div style={{fontSize:10,color:'var(--muted)'}}>MPPT and inverter operating normally</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tweaks Panel */}
+      <div className={`tweaks-panel ${tweaksVisible ? 'visible' : ''}`}>
+        <div className="tweaks-title">⚙ Tweaks</div>
+        <div className="tweak-row">
+          <span className="tweak-label">Accent Color</span>
+          <select value={tweaks.accentColor} onChange={e=>updateTweak('accentColor',e.target.value)}>
+            <option value="amber">Amber</option>
+            <option value="cyan">Cyan</option>
+            <option value="lime">Lime</option>
+          </select>
+        </div>
+        <div className="tweak-row">
+          <span className="tweak-label">Update Speed</span>
+          <select value={tweaks.updateInterval} onChange={e=>updateTweak('updateInterval',Number(e.target.value))}>
+            <option value={500}>Fast (0.5s)</option>
+            <option value={2000}>Normal (2s)</option>
+            <option value={5000}>Slow (5s)</option>
+          </select>
+        </div>
+        <div className="tweak-row">
+          <span className="tweak-label">Chart Window</span>
+          <input type="range" min={10} max={60} step={5} value={tweaks.chartWindow} onChange={e=>updateTweak('chartWindow',Number(e.target.value))}/>
+          <span style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--mono)',minWidth:24}}>{tweaks.chartWindow}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

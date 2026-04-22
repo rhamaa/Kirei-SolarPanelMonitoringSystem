@@ -16,20 +16,25 @@ const REQUIRED_ENV_VARS = [
 
 function ConfigMissingCallout() {
   return (
-    <div className="w-full rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-950 dark:border-red-900/50 dark:bg-red-950/25 dark:text-red-100">
-      <h2 className="text-lg font-semibold leading-6">Influx isn’t configured</h2>
-      <p className="mt-1 text-sm leading-6">
-        Influx isn’t configured for this app. Add the required variables to{" "}
-        <code className="rounded bg-red-900/10 px-1.5 py-0.5 text-[0.95em] dark:bg-red-50/10">
+    <div
+      className="w-full max-w-[720px] rounded-2xl border px-5 py-4"
+      style={{ borderColor: "rgba(255,94,94,0.35)", background: "rgba(255,94,94,0.08)", color: "var(--text)" }}
+    >
+      <h2 className="text-lg font-bold leading-6" style={{ fontFamily: "var(--font-app-mono)" }}>
+        Influx isn’t configured
+      </h2>
+      <p className="mt-1 text-sm leading-6" style={{ color: "var(--muted)" }}>
+        Add the required variables to{" "}
+        <code className="rounded bg-white/5 px-1.5 py-0.5 text-[0.95em]" style={{ fontFamily: "var(--font-app-mono)" }}>
           .env.local
         </code>
         , restart the dev server, then retry.
       </p>
 
-      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-6">
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-6" style={{ color: "var(--muted)" }}>
         {REQUIRED_ENV_VARS.map((name) => (
           <li key={name}>
-            <code className="rounded bg-red-900/10 px-1.5 py-0.5 text-[0.95em] dark:bg-red-50/10">
+            <code className="rounded bg-white/5 px-1.5 py-0.5 text-[0.95em]" style={{ fontFamily: "var(--font-app-mono)" }}>
               {name}
             </code>
           </li>
@@ -52,12 +57,14 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="flex flex-1 justify-center bg-background px-4">
-      <div className="w-full max-w-[1024px] py-8">
+    <div className="flex flex-1 justify-center bg-background">
+      <div className="w-full py-0">
         {defaultDeviceId ? (
           <DashboardClient defaultDeviceId={defaultDeviceId} defaultRange={defaultRange} />
         ) : (
-          <ConfigMissingCallout />
+          <div className="mx-auto max-w-[1200px] px-4 py-10 md:px-7">
+            <ConfigMissingCallout />
+          </div>
         )}
       </div>
     </div>
