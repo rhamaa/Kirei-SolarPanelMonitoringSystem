@@ -54,13 +54,6 @@ export default async function DashboardPage() {
   return (
     <div className="flex flex-1 justify-center bg-background px-4">
       <div className="w-full max-w-[1024px] py-8">
-        <div className="sticky top-0 z-10 -mx-4 mb-6 border-b border-black/5 bg-background/80 px-4 py-4 backdrop-blur dark:border-white/10">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
-            <div className="h-11 rounded-xl bg-zinc-100 px-3 dark:bg-zinc-900" />
-          </div>
-        </div>
-
         {defaultDeviceId ? (
           <DashboardClient defaultDeviceId={defaultDeviceId} defaultRange={defaultRange} />
         ) : (
