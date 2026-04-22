@@ -367,7 +367,7 @@ PollStatus PVData::parseResponse(const uint8_t* buffer, size_t length, MpptData&
 
   data.pvVoltage = getRegister(registers, 1) * 0.1f;
   data.chargingPower = getRegister(registers, 7) * 0.1f;
-  data.chargingCurrent = getRegister(registers, 5) * 0.01f;
+  data.chargingCurrent = getRegister(registers, 5) * 0.1f;
   data.batteryVoltage = getRegister(registers, 2) * 0.1f;
   data.chargingStatus = static_cast<uint8_t>(getRegister(registers, 12) & 0xFFU);
   data.loadCurrent = getRegister(registers, 3) * 0.01f;
