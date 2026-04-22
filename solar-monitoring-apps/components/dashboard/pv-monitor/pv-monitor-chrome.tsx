@@ -7,8 +7,8 @@ import type { DeviceSnapshot, HourlySeriesResponse, LatestKpiResponse } from "@/
 import type { KpiRangePreset } from "@/lib/influx/queries";
 import { emptyDeviceSnapshot } from "@/lib/influx/normalize";
 
+import { AnalyticsAreaPanel, AnalyticsChargingEnergyBar, AnalyticsPowerCompare } from "./analytics-charts";
 import {
-  AreaChartMini,
   ArcGauge,
   BatteryBar,
   EnergyFlowPanel,
@@ -57,11 +57,6 @@ function historyOrSeries(hourlySeries: HourlySeriesResponse | undefined, fallbac
   const v = seriesValuesForChart(hourlySeries);
   if (v.length > 1) return v;
   return fallback.length > 1 ? fallback : undefined;
-}
-
-function seriesOrPollHist(series: HourlySeriesResponse | undefined, histArr: number[]): number[] {
-  const s = seriesValuesForChart(series);
-  return s.length > 1 ? s : histArr;
 }
 
 export function PvMonitorChrome(props: {
@@ -136,7 +131,6 @@ export function PvMonitorChrome(props: {
 
   const chargingHourly = hourlyByField["mppt_charging_power"];
   const hourlyValues = useMemo(() => seriesValuesForChart(chargingHourly), [chargingHourly]);
-  const hourlyMax = useMemo(() => Math.max(...hourlyValues, 1e-6), [hourlyValues]);
   const kwhFromInfluxHourly = useMemo(() => kWhFromPowerMeans(chargingHourly), [chargingHourly]);
   const peakIdx = useMemo(() => {
     if (!hourlyValues.length) return -1;
@@ -155,9 +149,6 @@ export function PvMonitorChrome(props: {
     if (peakIdx < 0 || !pts[peakIdx]) return null;
     return new Date(pts[peakIdx].time).getUTCHours();
   }, [chargingHourly, peakIdx]);
-
-  const chargingBarPoints = chargingHourly?.points ?? [];
-  const chargingBarLabelStep = Math.max(1, Math.ceil(chargingBarPoints.length / 8));
 
   const mpptCharging = (chgW ?? 0) > 1;
 
@@ -309,7 +300,7 @@ export function PvMonitorChrome(props: {
       >
         <span style={{ color: "var(--accent)" }}>InfluxDB</span>: snapshot{" "}
         <code className="rounded bg-white/5 px-1">/api/kpi/latest</code> (range {range}) +{" "}
-        <code className="rounded bg-white/5 px-1">/api/kpi/hourly?range={range}</code> (same window, bucket {chargingHourly?.aggregateEvery ?? "—"}). Charts prefer Influx buckets; sparklines fall back to last {chartWindow} poll samples if a series is short.
+        <code className="rounded bg-white/5 px-1">/api/kpi/hourly?range={range}</code> (same window, bucket {chargingHourly?.aggregateEvery ?? "—"}). Analytics uses Recharts (axes + tooltips); sparklines still fall back to last {chartWindow} poll samples if a series is short.
       </div>
 
       <div className="mx-auto max-w-[1200px] space-y-6 px-4 py-6 md:px-7">
@@ -343,8 +334,9 @@ export function PvMonitorChrome(props: {
               No data for this device
             </div>
             <p className="mt-1 text-sm leading-6" style={{ color: "var(--muted)" }}>
-              No recent points in Influx for this <code className="rounded bg-white/5 px-1.5 py-0.5">device_id</code>. Confirm the device writes measurement{" "}
-              <code className="rounded bg-white/5 px-1.5 py-0.5">pv_monitoring</code> and try a wider range.
+              No recent points in Influx for this <code className="rounded bg-white/5 px-1.5 py-0.5">device</code> tag. Confirm the device writes measurements{" "}
+              <code className="rounded bg-white/5 px-1.5 py-0.5">mppt</code> /{" "}
+              <code className="rounded bg-white/5 px-1.5 py-0.5">inverter</code> (bucket from env) and try a wider range.
             </p>
           </div>
         ) : null}
@@ -480,166 +472,88 @@ export function PvMonitorChrome(props: {
 
         {tab === "analytics" ? (
           <div className="space-y-4" style={{ animation: "pv-fade-in 0.3s ease" }}>
+            <AnalyticsPowerCompare
+              range={range}
+              charging={hourlyByField["mppt_charging_power"]}
+              ac={hourlyByField["inverter_ac_power"]}
+              histChg={hist.pv_power}
+              histAc={hist.ac_power}
+            />
+
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {[
-                {
-                  title: "PV Charging Power",
-                  d: seriesOrPollHist(hourlyByField["mppt_charging_power"], hist.pv_power),
-                  foot:
-                    seriesValuesForChart(hourlyByField["mppt_charging_power"]).length > 1
-                      ? `Influx · −${hourlyByField["mppt_charging_power"]?.range ?? range} · every ${hourlyByField["mppt_charging_power"]?.aggregateEvery ?? "—"}`
-                      : `Poll buffer · last ${chartWindow} samples`,
-                  color: "var(--accent)",
-                  unit: "W",
-                  stat: `${fmt(chgW, 1)} W`,
-                  label: "Latest snapshot",
-                },
-                {
-                  title: "AC Output Power",
-                  d: seriesOrPollHist(hourlyByField["inverter_ac_power"], hist.ac_power),
-                  foot:
-                    seriesValuesForChart(hourlyByField["inverter_ac_power"]).length > 1
-                      ? `Influx · −${hourlyByField["inverter_ac_power"]?.range ?? range} · every ${hourlyByField["inverter_ac_power"]?.aggregateEvery ?? "—"}`
-                      : `Poll buffer · last ${chartWindow} samples`,
-                  color: "var(--cyan)",
-                  unit: "W",
-                  stat: `${fmt(acW, 1)} W`,
-                  label: "Latest snapshot",
-                },
-                {
-                  title: "Battery Voltage Trend",
-                  d: seriesOrPollHist(hourlyByField["mppt_battery_voltage"], hist.battery),
-                  foot:
-                    seriesValuesForChart(hourlyByField["mppt_battery_voltage"]).length > 1
-                      ? `Influx · −${hourlyByField["mppt_battery_voltage"]?.range ?? range} · every ${hourlyByField["mppt_battery_voltage"]?.aggregateEvery ?? "—"}`
-                      : `Poll buffer · last ${chartWindow} samples`,
-                  color: "var(--green)",
-                  unit: "V",
-                  stat: `${fmt(batV, 2)} V`,
-                  label: "Latest snapshot",
-                },
-                {
-                  title: "Grid Frequency",
-                  d: seriesOrPollHist(hourlyByField["inverter_ac_frequency"], hist.ac_freq),
-                  foot:
-                    seriesValuesForChart(hourlyByField["inverter_ac_frequency"]).length > 1
-                      ? `Influx · −${hourlyByField["inverter_ac_frequency"]?.range ?? range} · every ${hourlyByField["inverter_ac_frequency"]?.aggregateEvery ?? "—"}`
-                      : `Poll buffer · last ${chartWindow} samples`,
-                  color: "#c8a2ff",
-                  unit: "Hz",
-                  stat: `${fmt(acHz, 2)} Hz`,
-                  label: "Nominal 50Hz",
-                },
-              ].map((c) => (
-                <div key={c.title} className="rounded-xl border p-5 md:p-6" style={{ background: "var(--bg2)", borderColor: "var(--border)" }}>
-                  <div className="mb-3.5 flex items-start justify-between gap-3">
-                    <div>
-                      <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.1em]" style={{ fontFamily: "var(--font-app-mono)", color: "var(--muted)" }}>
-                        {c.title}
-                      </div>
-                      <div className="text-[22px] font-bold" style={{ fontFamily: "var(--font-app-mono)", color: c.color }}>
-                        {c.stat}
-                      </div>
-                      <div className="text-[10px]" style={{ color: "var(--muted)" }}>
-                        {c.label}
-                      </div>
-                    </div>
-                    <span
-                      className="shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold"
-                      style={{
-                        fontFamily: "var(--font-app-mono)",
-                        color: c.color,
-                        background: `${c.color}15`,
-                        border: `1px solid ${c.color}30`,
-                      }}
-                    >
-                      {c.unit}
-                    </span>
-                  </div>
-                  {c.d.length > 1 ? <AreaChartMini data={c.d} color={c.color} height={90} /> : (
-                    <div className="flex h-[90px] items-center justify-center text-xs" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>
-                      Collecting samples… refresh a few times
-                    </div>
-                  )}
-                  <div className="mt-1.5 flex justify-between text-[9px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>
-                    <span className="min-w-0 truncate">{c.foot}</span>
-                    <span>now</span>
-                  </div>
-                </div>
-              ))}
+              <AnalyticsAreaPanel
+                title="PV Charging Power"
+                unit="W"
+                color="var(--accent)"
+                variant="power"
+                series={hourlyByField["mppt_charging_power"]}
+                fallback={hist.pv_power}
+                range={range}
+                stat={`${fmt(chgW, 1)} W`}
+                statHint="Latest snapshot"
+                foot={
+                  seriesValuesForChart(hourlyByField["mppt_charging_power"]).length > 1
+                    ? `Influx · −${hourlyByField["mppt_charging_power"]?.range ?? range} · every ${hourlyByField["mppt_charging_power"]?.aggregateEvery ?? "—"}`
+                    : `Poll buffer · last ${chartWindow} samples`
+                }
+              />
+              <AnalyticsAreaPanel
+                title="AC Output Power"
+                unit="W"
+                color="var(--cyan)"
+                variant="power"
+                series={hourlyByField["inverter_ac_power"]}
+                fallback={hist.ac_power}
+                range={range}
+                stat={`${fmt(acW, 1)} W`}
+                statHint="Latest snapshot"
+                foot={
+                  seriesValuesForChart(hourlyByField["inverter_ac_power"]).length > 1
+                    ? `Influx · −${hourlyByField["inverter_ac_power"]?.range ?? range} · every ${hourlyByField["inverter_ac_power"]?.aggregateEvery ?? "—"}`
+                    : `Poll buffer · last ${chartWindow} samples`
+                }
+              />
+              <AnalyticsAreaPanel
+                title="Battery Voltage Trend"
+                unit="V"
+                color="var(--green)"
+                variant="voltage"
+                series={hourlyByField["mppt_battery_voltage"]}
+                fallback={hist.battery}
+                range={range}
+                stat={`${fmt(batV, 2)} V`}
+                statHint="Latest snapshot"
+                foot={
+                  seriesValuesForChart(hourlyByField["mppt_battery_voltage"]).length > 1
+                    ? `Influx · −${hourlyByField["mppt_battery_voltage"]?.range ?? range} · every ${hourlyByField["mppt_battery_voltage"]?.aggregateEvery ?? "—"}`
+                    : `Poll buffer · last ${chartWindow} samples`
+                }
+              />
+              <AnalyticsAreaPanel
+                title="Grid Frequency"
+                unit="Hz"
+                color="#c8a2ff"
+                variant="frequency"
+                series={hourlyByField["inverter_ac_frequency"]}
+                fallback={hist.ac_freq}
+                range={range}
+                stat={`${fmt(acHz, 2)} Hz`}
+                statHint="Nominal 50 Hz"
+                foot={
+                  seriesValuesForChart(hourlyByField["inverter_ac_frequency"]).length > 1
+                    ? `Influx · −${hourlyByField["inverter_ac_frequency"]?.range ?? range} · every ${hourlyByField["inverter_ac_frequency"]?.aggregateEvery ?? "—"}`
+                    : `Poll buffer · last ${chartWindow} samples`
+                }
+              />
             </div>
 
-            <div className="rounded-xl border px-5 py-5 md:px-6" style={{ background: "var(--bg2)", borderColor: "var(--border)" }}>
-              <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                <div>
-                  <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.1em]" style={{ fontFamily: "var(--font-app-mono)", color: "var(--muted)" }}>
-                    Charging energy (Influx)
-                  </div>
-                  <div className="text-[22px] font-bold" style={{ fontFamily: "var(--font-app-mono)", color: "var(--accent)" }}>
-                    {kwhFromInfluxHourly != null ? `${fmt(kwhFromInfluxHourly, 2)} kWh` : "—"}
-                  </div>
-                  <div className="text-[11px]" style={{ color: "var(--muted)" }}>
-                    Σ(mean W × {fmt(chargingHourly?.bucketDurationHours ?? 0, 4)} h) ÷ 1000 · −{chargingHourly?.range ?? range} · every{" "}
-                    <code className="rounded bg-white/5 px-1" style={{ fontFamily: "var(--font-app-mono)" }}>
-                      {chargingHourly?.aggregateEvery ?? "—"}
-                    </code>{" "}
-                    · field{" "}
-                    <code className="rounded bg-white/5 px-1" style={{ fontFamily: "var(--font-app-mono)" }}>
-                      {chargingHourly?.field ?? "mppt_charging_power"}
-                    </code>
-                  </div>
-                </div>
-                <div className="text-left sm:text-right">
-                  <div className="mb-1 text-[10px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>
-                    Peak bucket (UTC hour)
-                  </div>
-                  <div className="text-base font-bold" style={{ fontFamily: "var(--font-app-mono)", color: "var(--accent)" }}>
-                    {peakUtcHour != null ? `${peakUtcHour}:00` : "—"}
-                  </div>
-                  <div className="text-[10px]" style={{ color: "var(--muted)" }}>
-                    Peak mean: {hourlyValues.length ? `${fmt(Math.max(...hourlyValues, 0), 1)} W` : "—"}
-                  </div>
-                </div>
-              </div>
-              {hourlyValues.length ? (
-                <div className="flex h-20 items-end gap-0.5">
-                  {chargingBarPoints.map((p, i) => {
-                    const v = hourlyValues[i] ?? 0;
-                    const h = (v / hourlyMax) * 72;
-                    const utcH = Number.isFinite(Date.parse(p.time)) ? new Date(p.time).getUTCHours() : i;
-                    const isNow = now != null && utcH === now.getUTCHours();
-                    const barColor = isNow ? "var(--accent)" : v > 0 ? "color-mix(in srgb, var(--accent) 35%, transparent)" : "rgba(255,255,255,0.05)";
-                    const tick =
-                      range === "7d"
-                        ? (Number.isFinite(Date.parse(p.time)) ? new Date(p.time).toISOString().slice(5, 10) : `${i}`)
-                        : `${utcH}h`;
-                    return (
-                      <div key={p.time} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-                        <div
-                          className="w-full rounded-t-sm transition-[height]"
-                          style={{
-                            height: Math.max(4, h + 4),
-                            background: barColor,
-                            boxShadow: isNow ? "0 0 8px color-mix(in srgb, var(--accent) 55%, transparent)" : "none",
-                          }}
-                        />
-                        {i % chargingBarLabelStep === 0 ? (
-                          <div className="max-w-full truncate text-[8px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>
-                            {tick}
-                          </div>
-                        ) : (
-                          <div className="h-3" />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="flex h-20 items-center justify-center text-xs" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>
-                  No hourly series yet (Influx empty or hourly query failed).
-                </div>
-              )}
-            </div>
+            <AnalyticsChargingEnergyBar
+              series={chargingHourly}
+              range={range}
+              kwhTotal={kwhFromInfluxHourly}
+              peakUtcHour={peakUtcHour}
+              peakMeanW={hourlyValues.length ? `${fmt(Math.max(...hourlyValues, 0), 1)} W` : "—"}
+            />
           </div>
         ) : null}
 

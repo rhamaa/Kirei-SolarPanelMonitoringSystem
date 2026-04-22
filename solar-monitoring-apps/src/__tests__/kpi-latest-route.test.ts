@@ -67,7 +67,7 @@ describe("GET /api/kpi/latest", () => {
   it("returns normalized JSON with no secret fields", async () => {
     setBaseEnv();
     collectRowsMock.mockReset();
-    collectRowsMock.mockResolvedValueOnce([]);
+    collectRowsMock.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
     const { GET } = await importFreshRoute();
     const res = await GET(new Request("http://localhost/api/kpi/latest?device_id=device_1&range=24h"));
@@ -82,7 +82,8 @@ describe("GET /api/kpi/latest", () => {
   it("returns 502 with stable error code when Influx fails", async () => {
     setBaseEnv();
     collectRowsMock.mockReset();
-    collectRowsMock.mockRejectedValueOnce(new Error("unauthorized"));
+    const err = new Error("unauthorized");
+    collectRowsMock.mockRejectedValueOnce(err).mockRejectedValueOnce(err);
 
     const { GET } = await importFreshRoute();
     const res = await GET(new Request("http://localhost/api/kpi/latest?device_id=device_1&range=24h"));

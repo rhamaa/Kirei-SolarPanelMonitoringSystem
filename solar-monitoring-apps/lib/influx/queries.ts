@@ -1,3 +1,11 @@
+import type { InfluxChartField } from "@/lib/influx/hourly-fields";
+import {
+  CHART_FIELD_SOURCE,
+  INFLUX_DEVICE_TAG,
+  INFLUX_MEASUREMENT_INVERTER,
+  INFLUX_MEASUREMENT_MPPT,
+} from "@/lib/influx/influx-schema";
+
 export type KpiRangePreset = "1h" | "6h" | "24h" | "7d";
 
 type LatestKpiFluxParams = {
@@ -37,42 +45,53 @@ export function parseFluxEveryToHours(every: string): number {
   return 1;
 }
 
-export function buildLatestKpiFlux(params: LatestKpiFluxParams) {
+function buildLatestLastPerFieldFlux(params: LatestKpiFluxParams & { measurement: string }) {
   const bucket = escapeFluxStringLiteral(params.bucket);
   const deviceId = escapeFluxStringLiteral(params.deviceId);
+  const measurement = escapeFluxStringLiteral(params.measurement);
 
   return [
     `from(bucket: "${bucket}")`,
     `  |> range(start: -${params.range})`,
-    `  |> filter(fn: (r) => r._measurement == "pv_monitoring")`,
-    `  |> filter(fn: (r) => r.device_id == "${deviceId}")`,
-    `  |> group(columns: ["device_id", "_field"])`,
+    `  |> filter(fn: (r) => r._measurement == "${measurement}")`,
+    `  |> filter(fn: (r) => r["${INFLUX_DEVICE_TAG}"] == "${deviceId}")`,
+    `  |> group(columns: ["_field"])`,
     `  |> last()`,
-    `  |> pivot(rowKey: ["_time", "device_id"], columnKey: ["_field"], valueColumn: "_value")`,
   ].join("\n");
+}
+
+/** Latest MPPT fields (measurement `mppt`, tag `device`). */
+export function buildLatestMpptLastFieldsFlux(params: LatestKpiFluxParams) {
+  return buildLatestLastPerFieldFlux({ ...params, measurement: INFLUX_MEASUREMENT_MPPT });
+}
+
+/** Latest inverter fields (measurement `inverter`, tag `device`). */
+export function buildLatestInverterLastFieldsFlux(params: LatestKpiFluxParams) {
+  return buildLatestLastPerFieldFlux({ ...params, measurement: INFLUX_MEASUREMENT_INVERTER });
 }
 
 /** Mean of a numeric field over `range`, bucketed by `aggregateEveryForRange(range)`. */
 export type HourlyMeanFluxParams = {
   bucket: string;
   deviceId: string;
-  field: string;
+  field: InfluxChartField;
   range: KpiRangePreset;
 };
 
 export function buildHourlyMeanFlux(params: HourlyMeanFluxParams) {
   const bucket = escapeFluxStringLiteral(params.bucket);
   const deviceId = escapeFluxStringLiteral(params.deviceId);
-  const field = escapeFluxStringLiteral(params.field);
   const every = aggregateEveryForRange(params.range);
+  const spec = CHART_FIELD_SOURCE[params.field];
+  const measurement = escapeFluxStringLiteral(spec.measurement);
+  const influxField = escapeFluxStringLiteral(spec.influxField);
 
   return [
     `from(bucket: "${bucket}")`,
     `  |> range(start: -${params.range})`,
-    `  |> filter(fn: (r) => r._measurement == "pv_monitoring")`,
-    `  |> filter(fn: (r) => r.device_id == "${deviceId}")`,
-    `  |> filter(fn: (r) => r._field == "${field}")`,
+    `  |> filter(fn: (r) => r._measurement == "${measurement}")`,
+    `  |> filter(fn: (r) => r["${INFLUX_DEVICE_TAG}"] == "${deviceId}")`,
+    `  |> filter(fn: (r) => r._field == "${influxField}")`,
     `  |> aggregateWindow(every: ${every}, fn: mean, createEmpty: true)`,
   ].join("\n");
 }
-

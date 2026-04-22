@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getQueryApi } from "@/lib/influx/client";
-import { buildLatestKpiFlux, type KpiRangePreset } from "@/lib/influx/queries";
+import { mergeLatestFieldRowsToCanonicalRow } from "@/lib/influx/influx-schema";
+import { buildLatestInverterLastFieldsFlux, buildLatestMpptLastFieldsFlux, type KpiRangePreset } from "@/lib/influx/queries";
 import { normalizeLatestKpi } from "@/lib/influx/normalize";
 
 export const runtime = "nodejs";
@@ -37,9 +38,9 @@ function json(status: number, body: unknown, headers?: HeadersInit) {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const params = url.searchParams;
+  const searchParams = url.searchParams;
 
-  for (const key of params.keys()) {
+  for (const key of searchParams.keys()) {
     if (FORBIDDEN_QUERY_KEYS.has(key.toLowerCase())) {
       return json(400, { error: "invalid_query", message: `Forbidden query key: ${key}` });
     }
@@ -58,8 +59,8 @@ export async function GET(request: Request) {
     return json(500, { error: "env_invalid", message });
   }
 
-  const deviceIdRaw = params.get("device_id") ?? env.DEFAULT_DEVICE_ID;
-  const rangeRaw = params.get("range") ?? env.KPI_RANGE_DEFAULT;
+  const deviceIdRaw = searchParams.get("device_id") ?? env.DEFAULT_DEVICE_ID;
+  const rangeRaw = searchParams.get("range") ?? env.KPI_RANGE_DEFAULT;
 
   const parsed = z
     .object({
@@ -73,15 +74,20 @@ export async function GET(request: Request) {
   }
 
   const { deviceId, range } = parsed.data;
-  const flux = buildLatestKpiFlux({ bucket: env.INFLUX_BUCKET, deviceId, range });
+  const latestArgs = { bucket: env.INFLUX_BUCKET, deviceId, range } as const;
+  const mpptFlux = buildLatestMpptLastFieldsFlux(latestArgs);
+  const inverterFlux = buildLatestInverterLastFieldsFlux(latestArgs);
 
   try {
     const queryApi = await getQueryApi();
-    const rows = (await queryApi.collectRows(flux)) as Array<Record<string, unknown>>;
-    const body = normalizeLatestKpi({ deviceId, range, rows, asOf: new Date() });
+    const [mpptRows, inverterRows] = await Promise.all([
+      queryApi.collectRows(mpptFlux) as Promise<Array<Record<string, unknown>>>,
+      queryApi.collectRows(inverterFlux) as Promise<Array<Record<string, unknown>>>,
+    ]);
+    const merged = mergeLatestFieldRowsToCanonicalRow(mpptRows, inverterRows);
+    const body = normalizeLatestKpi({ deviceId, range, rows: [merged], asOf: new Date() });
     return json(200, body);
   } catch {
     return json(502, { error: "influx_unavailable" });
   }
 }
-
