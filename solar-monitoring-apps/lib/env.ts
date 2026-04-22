@@ -19,7 +19,15 @@ export const env = createEnv({
     KPI_REFRESH_MS: z.coerce.number().int().min(1000).default(10_000),
   },
   client: {},
-  runtimeEnv: process.env,
+  runtimeEnv: {
+    INFLUX_URL: process.env.INFLUX_URL,
+    INFLUX_ORG: process.env.INFLUX_ORG,
+    INFLUX_BUCKET: process.env.INFLUX_BUCKET,
+    INFLUX_TOKEN: process.env.INFLUX_TOKEN,
+    DEFAULT_DEVICE_ID: process.env.DEFAULT_DEVICE_ID,
+    KPI_RANGE_DEFAULT: process.env.KPI_RANGE_DEFAULT,
+    KPI_REFRESH_MS: process.env.KPI_REFRESH_MS,
+  },
   emptyStringAsUndefined: true,
   onValidationError: (error) => {
     const maybeIssues =
