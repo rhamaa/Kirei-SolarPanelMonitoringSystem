@@ -320,27 +320,6 @@ function AreaChart({ data, labels, color, height = 80, yLabel = '' }) {
   );
 }
 
-// Wifi signal
-function WifiSignal({ rssi }) {
-  const strength = rssi > -60 ? 4 : rssi > -70 ? 3 : rssi > -80 ? 2 : 1;
-  const color = strength >= 3 ? 'var(--green)' : strength === 2 ? 'var(--amber)' : 'var(--red)';
-  return (
-    <div style={{display:'flex',alignItems:'flex-end',gap:2,height:16}}>
-      {[1,2,3,4].map(b=>(
-        <div key={b} style={{
-          width:4,
-          height: 4 + b*3,
-          borderRadius:2,
-          background: b <= strength ? color : 'rgba(255,255,255,0.12)',
-          boxShadow: b <= strength ? `0 0 4px ${color}` : 'none',
-          transition:'all 0.5s'
-        }}/>
-      ))}
-      <span style={{fontSize:10,color,fontFamily:'var(--mono)',marginLeft:4}}>{rssi} dBm</span>
-    </div>
-  );
-}
-
 // Status badge
 function Badge({ text, ok }) {
   const color = ok ? 'var(--green)' : 'var(--red)';
@@ -380,7 +359,6 @@ function App() {
     inverter_ac_frequency: 49.7,
     inverter_ac_power_factor: 0.93,
     inverter_ac_apparent_power: 49.2,
-    wifi_rssi: -57,
   };
 
   const [data, setData] = useState(base);
@@ -420,7 +398,6 @@ function App() {
         const pf = clamp(jitter(d.inverter_ac_power_factor, 0.01), 0.88, 0.99);
         const apparent = ac_power / pf;
         const ac_current = ac_power / ac_v;
-        const rssi = clamp(d.wifi_rssi + Math.round((Math.random()-0.5)*2), -75, -45);
         return {
           ...d,
           mppt_pv_voltage: pv_voltage,
@@ -434,7 +411,6 @@ function App() {
           inverter_ac_power_factor: pf,
           inverter_ac_apparent_power: apparent,
           inverter_ac_energy: parseFloat((d.inverter_ac_energy + ac_power/3600000*2).toFixed(5)),
-          wifi_rssi: rssi,
         };
       });
       setHist(h => {
@@ -525,7 +501,6 @@ function App() {
         </div>
 
         <div style={{display:'flex',alignItems:'center',gap:16}}>
-          <WifiSignal rssi={data.wifi_rssi}/>
           <Badge text="MPPT Charging" ok={true}/>
           <div style={{fontSize:10,color:'var(--muted)',fontFamily:'var(--mono)'}}>
             {now.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
@@ -783,7 +758,6 @@ function App() {
                 {k:'Inverter Status', v:'Valid ✓', c:'var(--green)'},
                 {k:'Charging Mode', v:'MPPT Charging'},
                 {k:'Fault Code', v:'0x0001', c:'var(--amber)'},
-                {k:'WiFi RSSI', v:`${data.wifi_rssi} dBm`},
                 {k:'MPPT Uptime', v:'16751 s'},
                 {k:'Inverter Uptime', v:'16751 s'},
               ].map(({k,v,c})=>(
@@ -795,18 +769,6 @@ function App() {
             </div>
 
             <div>
-              <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'24px',marginBottom:16}}>
-                <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:16}}>Connectivity</div>
-                <div style={{display:'flex',alignItems:'center',gap:20,padding:'16px',background:'var(--bg3)',borderRadius:10}}>
-                  <div style={{fontSize:32}}>📡</div>
-                  <div>
-                    <div style={{fontFamily:'var(--mono)',fontSize:14,fontWeight:700,marginBottom:4}}>WiFi Connected</div>
-                    <WifiSignal rssi={data.wifi_rssi}/>
-                    <div style={{fontSize:10,color:'var(--muted)',marginTop:4}}>Signal quality: {data.wifi_rssi > -60 ? 'Good' : data.wifi_rssi > -70 ? 'Fair' : 'Poor'}</div>
-                  </div>
-                </div>
-              </div>
-
               <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,padding:'24px'}}>
                 <div style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:16}}>Alerts</div>
                 <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',background:'rgba(245,166,35,0.08)',border:'1px solid rgba(245,166,35,0.2)',borderRadius:8,marginBottom:10}}>
