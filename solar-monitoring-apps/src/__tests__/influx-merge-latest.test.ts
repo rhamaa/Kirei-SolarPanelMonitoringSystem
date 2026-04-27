@@ -7,6 +7,7 @@ describe("mergeLatestFieldRowsToCanonicalRow", () => {
     const merged = mergeLatestFieldRowsToCanonicalRow(
       [
         { _field: "pv_voltage", _value: 99.1, _time: "2026-01-15T10:00:00.000Z" },
+        { _field: "battery_soc", _value: 76, _time: "2026-01-15T10:05:00.000Z" },
         { _field: "charging_power", _value: 200, _time: "2026-01-15T10:05:00.000Z" },
       ],
       [
@@ -18,6 +19,7 @@ describe("mergeLatestFieldRowsToCanonicalRow", () => {
     );
 
     expect(merged.mppt_pv_voltage).toBe(99.1);
+    expect(merged.mppt_battery_soc).toBe(76);
     expect(merged.mppt_charging_power).toBe(200);
     expect(merged.inverter_ac_power).toBe(180);
     expect(merged.inverter_ac_voltage).toBe(230);

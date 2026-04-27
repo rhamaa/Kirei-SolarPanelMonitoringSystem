@@ -3,20 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { InfluxChartField } from "@/lib/influx/hourly-fields";
-import type { DeviceSnapshot, HourlySeriesResponse, LatestKpiResponse } from "@/lib/kpi/types";
 import type { KpiRangePreset } from "@/lib/influx/queries";
+import { clockHourWibFromIso } from "@/lib/kpi/chart-timezone";
+import type { DeviceSnapshot, HourlySeriesResponse, LatestKpiResponse } from "@/lib/kpi/types";
 import { emptyDeviceSnapshot } from "@/lib/influx/normalize";
 
 import { AnalyticsAreaPanel, AnalyticsChargingEnergyBar, AnalyticsPowerCompare } from "./analytics-charts";
 import {
-  ArcGauge,
-  BatteryBar,
+  BatterySocBar,
   EnergyFlowPanel,
-  PFGauge,
   Sparkline,
   StatCard,
   StatusBadge,
-  WifiSignal,
   clamp,
   fmt,
 } from "./chart-kit";
@@ -113,6 +111,7 @@ export function PvMonitorChrome(props: {
   const chgW = s.mppt_charging_power;
   const chgA = s.mppt_charging_current;
   const batV = s.mppt_battery_voltage;
+  const batSoc = s.mppt_battery_soc;
   const acW = s.inverter_ac_power;
   const acV = s.inverter_ac_voltage;
   const acI = s.inverter_ac_current;
@@ -122,12 +121,6 @@ export function PvMonitorChrome(props: {
   const apparent = s.inverter_ac_apparent_power;
   const loadW = s.mppt_load_power;
   const fault = s.mppt_fault_code;
-
-  const efficiency = useMemo(() => {
-    const denom = chgW ?? 0;
-    if (!denom || denom < 0.001) return null;
-    return ((acW ?? 0) / denom) * 100;
-  }, [acW, chgW]);
 
   const chargingHourly = hourlyByField["mppt_charging_power"];
   const hourlyValues = useMemo(() => seriesValuesForChart(chargingHourly), [chargingHourly]);
@@ -144,10 +137,10 @@ export function PvMonitorChrome(props: {
     });
     return idx;
   }, [hourlyValues]);
-  const peakUtcHour = useMemo(() => {
+  const peakWibHour = useMemo(() => {
     const pts = chargingHourly?.points ?? [];
     if (peakIdx < 0 || !pts[peakIdx]) return null;
-    return new Date(pts[peakIdx].time).getUTCHours();
+    return clockHourWibFromIso(pts[peakIdx].time);
   }, [chargingHourly, peakIdx]);
 
   const mpptCharging = (chgW ?? 0) > 1;
@@ -201,9 +194,6 @@ export function PvMonitorChrome(props: {
         </nav>
 
         <div className="flex items-center gap-3 md:gap-4">
-          <div className="hidden md:block">
-            <WifiSignal rssi={s.wifi_rssi} />
-          </div>
           <StatusBadge text={mpptCharging ? "MPPT Charging" : "Idle"} ok={mpptCharging} />
           <div className="text-[10px] tabular-nums" style={{ fontFamily: "var(--font-app-mono)", color: "var(--muted)" }}>
             {now
@@ -378,24 +368,34 @@ export function PvMonitorChrome(props: {
               />
             </div>
 
-            <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
               <div className="rounded-xl border p-5 md:p-6" style={{ background: "var(--bg2)", borderColor: "var(--border)" }}>
                 <div className="mb-3.5 text-[11px] font-bold uppercase tracking-[0.1em]" style={{ fontFamily: "var(--font-app-mono)", color: "var(--muted)" }}>
                   Battery Status
                 </div>
-                <div className="mb-4 flex items-center gap-4">
-                  <ArcGauge value={(batV ?? 44) - 44} max={14.4} color="var(--green)" size={80} />
-                  <div>
-                    <div className="text-[28px] font-bold leading-none" style={{ fontFamily: "var(--font-app-mono)", color: "var(--green)" }}>
-                      {fmt(batV, 2)}
-                      <span className="text-sm opacity-60"> V</span>
-                    </div>
-                    <div className="text-[11px]" style={{ color: "var(--muted)" }}>
-                      Charging: {chgA != null ? fmt(chgA * 1000, 0) : "—"} mA
-                    </div>
+                <div className="mb-3">
+                  <div className="text-[11px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>
+                    State of charge
+                  </div>
+                  <div className="text-[28px] font-bold leading-none" style={{ fontFamily: "var(--font-app-mono)", color: "var(--green)" }}>
+                    {batSoc != null && Number.isFinite(batSoc) ? (
+                      <>
+                        {fmt(batSoc, 0)}
+                        <span className="text-sm opacity-60"> %</span>
+                      </>
+                    ) : (
+                      <span className="text-base opacity-60">—</span>
+                    )}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>
+                    <span>
+                      {batV != null && Number.isFinite(batV) ? `${fmt(batV, 2)} V` : "— V"}
+                    </span>
+                    <span className="opacity-40">·</span>
+                    <span>Charging {chgA != null ? fmt(chgA * 1000, 0) : "—"} mA</span>
                   </div>
                 </div>
-                <BatteryBar voltage={batV} />
+                <BatterySocBar socPercent={batSoc} />
               </div>
 
               <div className="rounded-xl border p-5 md:p-6" style={{ background: "var(--bg2)", borderColor: "var(--border)" }}>
@@ -419,51 +419,6 @@ export function PvMonitorChrome(props: {
                       </div>
                     </div>
                   ))}
-                </div>
-              </div>
-
-              <div className="rounded-xl border p-5 md:p-6" style={{ background: "var(--bg2)", borderColor: "var(--border)" }}>
-                <div className="mb-3.5 text-[11px] font-bold uppercase tracking-[0.1em]" style={{ fontFamily: "var(--font-app-mono)", color: "var(--muted)" }}>
-                  Quality
-                </div>
-                <div className="mb-3.5 flex items-center gap-3 border-b pb-3.5" style={{ borderColor: "var(--border)" }}>
-                  <PFGauge pf={pf} />
-                  <div>
-                    <div className="mb-1 text-[10px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>
-                      Power Factor
-                    </div>
-                    <div className="text-[22px] font-bold" style={{ fontFamily: "var(--font-app-mono)", color: "var(--green)" }}>
-                      {fmt(pf, 3)}
-                    </div>
-                    <div className="text-[10px]" style={{ color: "var(--muted)" }}>
-                      Apparent: {fmt(apparent, 1)} VA
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="mb-1 text-[10px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>
-                      System Efficiency
-                    </div>
-                    <div
-                      className="text-[22px] font-bold"
-                      style={{
-                        fontFamily: "var(--font-app-mono)",
-                        color: efficiency != null && efficiency > 40 ? "var(--green)" : "var(--amber)",
-                      }}
-                    >
-                      {efficiency != null ? fmt(efficiency, 1) : "—"}
-                      <span className="text-[10px] opacity-60">%</span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="mb-1 text-[10px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>
-                      Load Power
-                    </div>
-                    <div className="text-[22px] font-bold" style={{ fontFamily: "var(--font-app-mono)", color: "var(--muted)" }}>
-                      {fmt(loadW, 1)} <span className="text-[10px]">W</span>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
@@ -551,7 +506,7 @@ export function PvMonitorChrome(props: {
               series={chargingHourly}
               range={range}
               kwhTotal={kwhFromInfluxHourly}
-              peakUtcHour={peakUtcHour}
+              peakWibHour={peakWibHour}
               peakMeanW={hourlyValues.length ? `${fmt(Math.max(...hourlyValues, 0), 1)} W` : "—"}
             />
           </div>
@@ -673,7 +628,6 @@ export function PvMonitorChrome(props: {
                   v: fault != null ? `0x${Math.max(0, Math.floor(fault)).toString(16).padStart(4, "0")}` : "—",
                   c: fault != null && fault !== 0 ? "var(--amber)" : undefined,
                 },
-                { k: "WiFi RSSI", v: s.wifi_rssi != null ? `${fmt(s.wifi_rssi, 0)} dBm` : "—" },
                 { k: "Data range", v: range },
                 { k: "Last asOf", v: formatAsOfUtc(data?.asOf) },
               ].map((row) => (
@@ -689,31 +643,6 @@ export function PvMonitorChrome(props: {
             </div>
 
             <div className="space-y-4">
-              <div className="rounded-xl border p-6" style={{ background: "var(--bg2)", borderColor: "var(--border)" }}>
-                <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.1em]" style={{ fontFamily: "var(--font-app-mono)", color: "var(--muted)" }}>
-                  Connectivity
-                </div>
-                <div className="flex items-center gap-5 rounded-lg p-4" style={{ background: "var(--bg3)" }}>
-                  <div className="text-3xl">📡</div>
-                  <div>
-                    <div className="mb-1 text-sm font-bold" style={{ fontFamily: "var(--font-app-mono)" }}>
-                      WiFi telemetry
-                    </div>
-                    <WifiSignal rssi={s.wifi_rssi} />
-                    <div className="mt-1 text-[10px]" style={{ color: "var(--muted)" }}>
-                      Signal quality:{" "}
-                      {s.wifi_rssi == null
-                        ? "—"
-                        : s.wifi_rssi > -60
-                          ? "Good"
-                          : s.wifi_rssi > -70
-                            ? "Fair"
-                            : "Poor"}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               <div className="rounded-xl border p-6" style={{ background: "var(--bg2)", borderColor: "var(--border)" }}>
                 <div className="mb-4 text-[11px] font-bold uppercase tracking-[0.1em]" style={{ fontFamily: "var(--font-app-mono)", color: "var(--muted)" }}>
                   Alerts

@@ -223,12 +223,13 @@ export function StatCard(props: {
   );
 }
 
-export function BatteryBar(props: { voltage: number | null; min?: number; max?: number }) {
-  const { voltage, min = 44, max = 58.4 } = props;
-  if (voltage == null || !Number.isFinite(voltage)) {
-    return <div className="text-[11px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>No battery voltage</div>;
+/** Segmented bar from Influx `battery_soc` (0–100). */
+export function BatterySocBar(props: { socPercent: number | null }) {
+  const { socPercent } = props;
+  if (socPercent == null || !Number.isFinite(socPercent)) {
+    return <div className="text-[11px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>No battery_soc in Influx</div>;
   }
-  const pct = clamp((voltage - min) / (max - min), 0, 1);
+  const pct = clamp(socPercent / 100, 0, 1);
   const color = pct > 0.6 ? "var(--green)" : pct > 0.3 ? "var(--amber)" : "var(--red)";
   const segments = 10;
   return (
@@ -253,9 +254,9 @@ export function BatteryBar(props: { voltage: number | null; min?: number; max?: 
         />
       </div>
       <div className="flex justify-between text-[10px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>
-        <span>{fmt(min)}V</span>
-        <span style={{ color }}>{fmt(pct * 100, 0)}%</span>
-        <span>{fmt(max)}V</span>
+        <span>0%</span>
+        <span style={{ color }}>{fmt(socPercent, 0)}%</span>
+        <span>100%</span>
       </div>
     </div>
   );
@@ -333,34 +334,6 @@ export function AreaChartMini(props: { data: number[]; color: string; height?: n
         ) : null,
       )}
     </svg>
-  );
-}
-
-export function WifiSignal(props: { rssi: number | null }) {
-  const rssi = props.rssi;
-  if (rssi == null || !Number.isFinite(rssi)) {
-    return <span className="text-[10px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>— dBm</span>;
-  }
-  const strength = rssi > -60 ? 4 : rssi > -70 ? 3 : rssi > -80 ? 2 : 1;
-  const color = strength >= 3 ? "var(--green)" : strength === 2 ? "var(--amber)" : "var(--red)";
-  return (
-    <div className="flex items-end gap-0.5" style={{ height: 16 }}>
-      {[1, 2, 3, 4].map((b) => (
-        <div
-          key={b}
-          className="rounded-sm transition-all duration-500"
-          style={{
-            width: 4,
-            height: 4 + b * 3,
-            background: b <= strength ? color : "rgba(255,255,255,0.12)",
-            boxShadow: b <= strength ? `0 0 4px ${color}` : "none",
-          }}
-        />
-      ))}
-      <span className="ml-1 text-[10px]" style={{ color, fontFamily: "var(--font-app-mono)" }}>
-        {rssi} dBm
-      </span>
-    </div>
   );
 }
 

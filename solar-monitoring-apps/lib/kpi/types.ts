@@ -12,6 +12,8 @@ export type DeviceSnapshot = {
   mppt_charging_power: number | null;
   mppt_charging_current: number | null;
   mppt_battery_voltage: number | null;
+  /** 0–100 from Influx `battery_soc` (mppt). */
+  mppt_battery_soc: number | null;
   mppt_load_current: number | null;
   mppt_load_power: number | null;
   mppt_fault_code: number | null;
@@ -23,7 +25,6 @@ export type DeviceSnapshot = {
   inverter_ac_frequency: number | null;
   inverter_ac_power_factor: number | null;
   inverter_ac_apparent_power: number | null;
-  wifi_rssi: number | null;
 };
 
 export type LatestKpiResponse = {

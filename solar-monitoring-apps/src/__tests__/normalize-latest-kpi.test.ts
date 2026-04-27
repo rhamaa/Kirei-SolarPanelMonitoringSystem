@@ -87,6 +87,5 @@ describe("normalizeLatestKpi", () => {
       rows: [],
     });
     expect(body.snapshot.mppt_pv_voltage).toBeNull();
-    expect(body.snapshot.wifi_rssi).toBeNull();
   });
 });

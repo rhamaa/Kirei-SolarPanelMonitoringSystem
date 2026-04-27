@@ -46,6 +46,7 @@ export function emptyDeviceSnapshot(): DeviceSnapshot {
     mppt_charging_power: null,
     mppt_charging_current: null,
     mppt_battery_voltage: null,
+    mppt_battery_soc: null,
     mppt_load_current: null,
     mppt_load_power: null,
     mppt_fault_code: null,
@@ -57,7 +58,6 @@ export function emptyDeviceSnapshot(): DeviceSnapshot {
     inverter_ac_frequency: null,
     inverter_ac_power_factor: null,
     inverter_ac_apparent_power: null,
-    wifi_rssi: null,
   };
 }
 
@@ -67,6 +67,7 @@ export function extractDeviceSnapshot(row: Record<string, unknown> | undefined):
     mppt_charging_power: pickField(row, "mppt_charging_power"),
     mppt_charging_current: pickField(row, "mppt_charging_current"),
     mppt_battery_voltage: pickField(row, "mppt_battery_voltage"),
+    mppt_battery_soc: pickField(row, "mppt_battery_soc"),
     mppt_load_current: pickField(row, "mppt_load_current"),
     mppt_load_power: pickField(row, "mppt_load_power"),
     mppt_fault_code: pickField(row, "mppt_fault_code"),
@@ -78,7 +79,6 @@ export function extractDeviceSnapshot(row: Record<string, unknown> | undefined):
     inverter_ac_frequency: pickField(row, "inverter_ac_frequency"),
     inverter_ac_power_factor: pickField(row, "inverter_ac_power_factor"),
     inverter_ac_apparent_power: pickField(row, "inverter_ac_apparent_power"),
-    wifi_rssi: pickField(row, "wifi_rssi"),
   };
 }
 

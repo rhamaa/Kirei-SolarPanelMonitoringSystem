@@ -26,6 +26,7 @@ const MPPT_LAST_FIELD_TO_CANONICAL: Record<string, keyof DeviceSnapshot | null> 
   charging_power: "mppt_charging_power",
   charging_current: "mppt_charging_current",
   battery_voltage: "mppt_battery_voltage",
+  battery_soc: "mppt_battery_soc",
   load_current: "mppt_load_current",
   load_power: "mppt_load_power",
   fault_code: "mppt_fault_code",

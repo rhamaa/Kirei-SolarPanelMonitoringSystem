@@ -16,6 +16,7 @@ import {
 } from "recharts";
 
 import type { KpiRangePreset } from "@/lib/influx/queries";
+import { formatInfluxIsoTooltipWib, formatInfluxTick } from "@/lib/kpi/chart-timezone";
 import type { HourlySeriesResponse } from "@/lib/kpi/types";
 
 import { fmt } from "./chart-kit";
@@ -29,16 +30,6 @@ export type SeriesChartRow = {
   label: string;
   y: number;
 };
-
-function formatInfluxTick(ms: number, range: KpiRangePreset): string {
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return "—";
-  if (range === "7d") return d.toISOString().slice(5, 10);
-  if (range === "24h") return `${d.getUTCHours()}h`;
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
-}
 
 /** Prefer Influx buckets; otherwise poll ring buffer (index-based X). */
 export function seriesChartRows(
@@ -86,7 +77,7 @@ function yDomainForVariant(variant: AxisVariant, rows: SeriesChartRow[]): [numbe
   return [lo - span * 0.04, hi + span * 0.04];
 }
 
-const axisStyle = { fontSize: 10, fontFamily: "var(--font-app-mono)", fill: "var(--muted)" };
+const axisStyle = { fontSize: 11, fontFamily: "var(--font-app-mono)", fill: "var(--muted)" };
 const gridStroke = "rgba(255,255,255,0.06)";
 
 function tooltipBoxStyle(): CSSProperties {
@@ -231,7 +222,7 @@ export function AnalyticsAreaPanel(props: {
 
       <div className="mt-2 flex justify-between gap-2 text-[9px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>
         <span className="min-w-0 truncate">{foot}</span>
-        <span className="shrink-0">{source === "influx" ? "UTC" : "poll idx"}</span>
+        <span className="shrink-0">{source === "influx" ? "WIB" : "poll idx"}</span>
       </div>
     </div>
   );
@@ -357,6 +348,10 @@ export function AnalyticsPowerCompare(props: {
             <Tooltip
               contentStyle={tooltipBoxStyle()}
               labelStyle={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)", fontSize: 10 }}
+              labelFormatter={(_, p) => {
+                const row = (Array.isArray(p) ? p[0]?.payload : undefined) as DualRow | undefined;
+                return row?.label ?? "";
+              }}
               formatter={(value, name) => {
                 const v = typeof value === "number" ? value : value != null ? Number(value) : NaN;
                 const text = Number.isFinite(v) ? `${fmt(v, 1)} W` : "—";
@@ -390,10 +385,10 @@ export function AnalyticsChargingEnergyBar(props: {
   series: HourlySeriesResponse | undefined;
   range: KpiRangePreset;
   kwhTotal: number | null;
-  peakUtcHour: number | null;
+  peakWibHour: number | null;
   peakMeanW: string;
 }) {
-  const { series, range, kwhTotal, peakUtcHour, peakMeanW } = props;
+  const { series, range, kwhTotal, peakWibHour, peakMeanW } = props;
   const bucketH = series?.bucketDurationHours ?? 0;
 
   const rows: BarEnergyRow[] = useMemo(() => {
@@ -442,10 +437,10 @@ export function AnalyticsChargingEnergyBar(props: {
         </div>
         <div className="text-left sm:text-right">
           <div className="mb-1 text-[10px]" style={{ color: "var(--muted)", fontFamily: "var(--font-app-mono)" }}>
-            Peak bucket (UTC hour)
+            Peak bucket (WIB)
           </div>
           <div className="text-base font-bold" style={{ fontFamily: "var(--font-app-mono)", color: "var(--accent)" }}>
-            {peakUtcHour != null ? `${peakUtcHour}:00` : "—"}
+            {peakWibHour != null ? `${String(peakWibHour).padStart(2, "0")}:00` : "—"}
           </div>
           <div className="text-[10px]" style={{ color: "var(--muted)" }}>
             Peak mean: {peakMeanW}
@@ -481,7 +476,7 @@ export function AnalyticsChargingEnergyBar(props: {
               labelFormatter={(_, p) => {
                 const pl = Array.isArray(p) ? p[0] : undefined;
                 const row = pl?.payload as BarEnergyRow | undefined;
-                return row?.iso ? new Date(row.iso).toISOString().replace("T", " ").slice(0, 19) + " UTC" : "";
+                return row?.iso ? formatInfluxIsoTooltipWib(row.iso) : "";
               }}
               formatter={(value, _name, item) => {
                 const row = item?.payload as BarEnergyRow | undefined;
